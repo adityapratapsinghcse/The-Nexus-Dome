@@ -90,3 +90,20 @@ def verify_access(request):
         )
 
     return Response(AccessLogSerializer(log).data, status=201)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def access_log_list(request):
+    """
+    GET /api/access/log/?device_id=1
+    """
+    user_households = request.user.memberships.values_list('household_id', flat=True)
+    devices = Device.objects.filter(household_id__in=user_households)
+
+    logs = AccessLog.objects.filter(device__in=devices)
+    device_id = request.query_params.get('device_id')
+    if device_id:
+        logs = logs.filter(device_id=device_id)
+
+    serializer = AccessLogSerializer(logs[:20], many=True)
+    return Response(serializer.data)

@@ -6,6 +6,10 @@ from .models import Device, Command, EnergyLog
 from .serializers import DeviceSerializer, CommandSerializer, EnergyLogSerializer
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from collections import defaultdict
+from datetime import timedelta
+from django.utils import timezone
+from sensors.models import SensorReading
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -87,3 +91,56 @@ def energy_daily(request):
         logs = logs.filter(device_id=device_id)
     serializer = EnergyLogSerializer(logs, many=True)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def energy_summary(request):
+    """
+    GET /api/energy/summary/?device_id=1
+    Integrates real ACS712 current readings (Amps) into Watt-hours,
+    assuming 230V mains. Returns today's total and a 7-day daily breakdown.
+    This is genuine derived data - if there's no sensor history yet, it
+    returns zeros/empty rather than inventing numbers.
+    """
+    user_households = request.user.memberships.values_list('household_id', flat=True)
+    device_id = request.query_params.get('device_id')
+
+    devices = Device.objects.filter(household_id__in=user_households)
+    if device_id:
+        devices = devices.filter(id=device_id)
+    if not devices.exists():
+        return Response({"error": "Device not found or not in your household"}, status=404)
+
+    seven_days_ago = timezone.now() - timedelta(days=7)
+    readings = SensorReading.objects.filter(
+        device__in=devices, sensor_type='current', timestamp__gte=seven_days_ago
+    ).order_by('timestamp')
+
+    daily_kwh = defaultdict(float)
+    prev = None
+    for r in readings:
+        if prev is not None:
+            dt_hours = (r.timestamp - prev.timestamp).total_seconds() / 3600
+            if 0 < dt_hours < 1:  # ignore gaps (device offline) so they don't skew totals
+                avg_amps = (r.value + prev.value) / 2
+                watts = avg_amps * 230
+                kwh = (watts * dt_hours) / 1000
+                day_key = r.timestamp.date().isoformat()
+                daily_kwh[day_key] += kwh
+        prev = r
+
+    today_key = timezone.now().date().isoformat()
+    today_kwh = daily_kwh.get(today_key, 0.0)
+
+    last_7_days = []
+    for i in range(6, -1, -1):
+        day = (timezone.now() - timedelta(days=i)).date()
+        last_7_days.append({"day": day.strftime('%a'), "date": day.isoformat(), "kwh": round(daily_kwh.get(day.isoformat(), 0.0), 3)})
+
+    return Response({
+        "today_kwh": round(today_kwh, 3),
+        "week_total_kwh": round(sum(daily_kwh.values()), 3),
+        "daily_breakdown": last_7_days,
+        "has_data": readings.exists(),
+    })

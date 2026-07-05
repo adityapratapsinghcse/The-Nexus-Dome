@@ -7,4 +7,5 @@ urlpatterns = [
     path('commands/pending/', views.pending_commands, name='pending-commands'),
     path('commands/ack/', views.acknowledge_command, name='acknowledge-command'),
     path('energy/daily/', views.energy_daily, name='energy-daily'),
+    path('energy/summary/', views.energy_summary, name='energy-summary'),
 ]
