@@ -1,0 +1,56 @@
+import secrets
+from django.db import models
+
+
+def generate_device_key():
+    return secrets.token_hex(32)
+
+
+class Device(models.Model):
+    DEVICE_TYPES = [
+        ('esp32', 'ESP32 Main Board'),
+        ('arduino_uno', 'Arduino Uno Slave Board'),
+    ]
+
+    household = models.ForeignKey('accounts.Household', on_delete=models.CASCADE, related_name='devices')
+    name = models.CharField(max_length=100)
+    type = models.CharField(max_length=20, choices=DEVICE_TYPES, default='esp32')
+    location = models.CharField(max_length=100, blank=True)
+    device_key = models.CharField(max_length=64, unique=True, editable=False, default=generate_device_key)
+    is_online = models.BooleanField(default=False)
+    last_seen = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.household.name})"
+
+class Command(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('sent', 'Sent'),
+        ('acknowledged', 'Acknowledged'),
+        ('failed', 'Failed'),
+    ]
+
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='commands')
+    action = models.CharField(max_length=50)   # e.g. "light_on", "fan_off", "unlock_door"
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.action} -> {self.device.name} [{self.status}]"
+    
+class EnergyLog(models.Model):
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='energy_logs')
+    on_duration_mins = models.FloatField(default=0)
+    estimated_kwh = models.FloatField(default=0)
+    date = models.DateField()
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ('device', 'date')
+
+    def __str__(self):
+        return f"{self.device.name} - {self.date}: {self.estimated_kwh} kWh"

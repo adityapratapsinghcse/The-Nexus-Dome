@@ -1,0 +1,3 @@
+web: daphne -b 0.0.0.0 -p $PORT smartnest.asgi:application
+worker: celery -A smartnest worker --loglevel=info
+beat: celery -A smartnest beat --loglevel=info
