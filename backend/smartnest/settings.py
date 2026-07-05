@@ -47,9 +47,15 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True  # tighten this in Phase 2.10 before deploying
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    "https://smart-nest-tau.vercel.app",  
+    "http://localhost:5173",  
+]
 
 ROOT_URLCONF = 'smartnest.urls'
+
+FIREBASE_CREDENTIALS_JSON = config('FIREBASE_CREDENTIALS_JSON', default='{}')
 
 TEMPLATES = [
     {

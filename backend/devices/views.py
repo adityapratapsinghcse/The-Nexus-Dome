@@ -144,3 +144,20 @@ def energy_summary(request):
         "daily_breakdown": last_7_days,
         "has_data": readings.exists(),
     })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def register_push_token(request):
+    """
+    POST /api/devices/register-push-token/
+    Body: {"fcm_token": "..."}
+    Saves this user's FCM token on every Membership they have, so alerts
+    from any of their households reach this phone.
+    """
+    fcm_token = request.data.get('fcm_token')
+    if not fcm_token:
+        return Response({"error": "fcm_token required"}, status=400)
+
+    from accounts.models import Membership
+    Membership.objects.filter(user=request.user).update(fcm_token=fcm_token)
+    return Response({"status": "registered"})

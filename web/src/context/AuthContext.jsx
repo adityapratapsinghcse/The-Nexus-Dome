@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { setupPushNotifications } from '../native/setupPushNotifications';
 import client from '../api/client';
+
 
 const AuthContext = createContext(null);
 
@@ -20,6 +22,7 @@ export function AuthProvider({ children }) {
             setHouseholdName(first.household_name);
             localStorage.setItem('smartnest_household_id', first.household);
             localStorage.setItem('smartnest_household_name', first.household_name);
+            setupPushNotifications();
           }
         })
         .catch(() => logout())
@@ -34,6 +37,7 @@ export function AuthProvider({ children }) {
     const newToken = res.data.token;
     localStorage.setItem('smartnest_token', newToken);
     setToken(newToken);
+    setupPushNotifications();
 
     const householdsRes = await client.get('/api/auth/my-households/', {
       headers: { Authorization: `Token ${newToken}` },

@@ -7,6 +7,7 @@ from devices.authentication import DeviceKeyAuthentication
 from devices.models import Device
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from .push import send_alert_push
 
 
 @api_view(['GET'])
@@ -88,6 +89,13 @@ def verify_access(request):
                 }
             }
         )
+        # inside verify_access, right after the async_to_sync(channel_layer.group_send)(...) call:
+        send_alert_push(
+            device.household_id,
+            title="Access Denied",
+            body=f"Failed access attempt: UID {log.rfid_uid}"
+        )
+
 
     return Response(AccessLogSerializer(log).data, status=201)
 

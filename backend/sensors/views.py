@@ -10,6 +10,8 @@ from rest_framework.permissions import AllowAny ,IsAuthenticated
 from devices.authentication import DeviceKeyAuthentication
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from alerts.push import send_alert_push
+from alerts.models import Alert
 
 # Maps the flat JSON fields your ESP32 sends to (sensor_type, unit) pairs
 SENSOR_FIELD_MAP = {
@@ -79,7 +81,19 @@ def ingest_sensor_data(request):
             }
         }
     )
-    return Response({"status": "ok", "readings_created": len(created)}, status=status.HTTP_201_CREATED)
+    # Inside ingest_sensor_data, after the existing bulk_create and WebSocket broadcast, add:
+    if data.get('flame_detected'):
+        Alert.objects.create(device=device, type='fire', severity='critical', message='Flame detected - possible fire!')
+        send_alert_push(device.household_id, "🔥 Fire Alert", "Flame sensor triggered - check immediately!")
+
+    if data.get('water_leak'):
+        Alert.objects.create(device=device, type='water_leak', severity='critical', message='Water leak detected!')
+        send_alert_push(device.household_id, "💧 Water Leak", "Leak sensor triggered.")
+
+    if data.get('gas_percent', 0) > 55:
+        Alert.objects.create(device=device, type='gas_leak', severity='critical', message=f"Gas level critical: {data.get('gas_percent')}%")
+        send_alert_push(device.household_id, "⚠️ Gas Alert", f"Gas level at {data.get('gas_percent')}% - critical threshold exceeded!")
+        return Response({"status": "ok", "readings_created": len(created)}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])

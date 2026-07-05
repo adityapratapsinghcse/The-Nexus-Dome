@@ -18,6 +18,7 @@ class Membership(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memberships')
     household = models.ForeignKey(Household, on_delete=models.CASCADE, related_name='members')
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)  # this user's phone push token
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

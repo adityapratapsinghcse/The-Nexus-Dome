@@ -8,4 +8,5 @@ urlpatterns = [
     path('commands/ack/', views.acknowledge_command, name='acknowledge-command'),
     path('energy/daily/', views.energy_daily, name='energy-daily'),
     path('energy/summary/', views.energy_summary, name='energy-summary'),
+    path('devices/register-push-token/', views.register_push_token, name='register-push-token'),
 ]

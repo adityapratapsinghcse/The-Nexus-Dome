@@ -1,1 +1,4 @@
 node_modules
+# Firebase Admin SDK
+backend/*smartnest-2d6a4-firebase-adminsdk-fbsvc-f92f7bc939*.json
+backend/*.json
