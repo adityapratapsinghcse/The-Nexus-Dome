@@ -82,14 +82,16 @@ REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
 
 CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [REDIS_URL],
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [{
+                "address": REDIS_URL,
+                "protocol": 2,   # <-- force RESP2, avoids the RESP3 bug
+            }],
         },
     },
 }
-
 
 CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
 CELERY_TIMEZONE = 'Asia/Kolkata'
