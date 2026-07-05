@@ -47,11 +47,11 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    "https://smart-nest-tau.vercel.app",  
-    "http://localhost:5173",  
-]
+CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOWED_ORIGINS = [
+#     "https://smart-nest-tau.vercel.app",  
+#     "http://localhost:5173",  
+# ]
 
 ROOT_URLCONF = 'smartnest.urls'
 
