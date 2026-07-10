@@ -1,327 +1,253 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { 
-  Thermometer, 
-  Droplets, 
-  Wind, 
-  Sun, 
-  Lightbulb, 
-  Fan, 
-  DoorClosed, 
-  Flame, 
-  ShieldCheck, 
-  Zap, 
-  Activity, 
-  TriangleAlert,
-  Car
-} from 'lucide-react';
-import PanelCard from '../components/ui/PanelCard';
-import DialGauge from '../components/ui/DialGauge';
-import ToggleSwitch from '../components/ui/ToggleSwitch';
-import StatusPill from '../components/ui/StatusPill';
-import LiveDot from '../components/ui/LiveDot';
-import client from '../api/client';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useState, useEffect, useCallback } from 'react';
+import { Thermometer, Droplets, Wind, Flame, ShieldAlert, Car, Power, Lightbulb, Fan, Unlock, Activity, Zap } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
-// Extended to map the new Phase 4/5 Garage Sensor Inputs
-function mapLatestReadings(readings) {
-  const out = {};
-  readings.forEach((r) => {
-    if (r.sensor_type === 'temperature') out.temperature = r.value;
-    if (r.sensor_type === 'humidity') out.humidity = r.value;
-    if (r.sensor_type === 'gas') out.gas = r.value;
-    if (r.sensor_type === 'light') out.light = r.value;
-    if (r.sensor_type === 'current') out.current = r.value;
-    if (r.sensor_type === 'distance') out.distance = r.value;
-    if (r.sensor_type === 'window') out.windowOpen = r.value === 1;
-    if (r.sensor_type === 'motion') out.motion = r.value === 1;
-    if (r.sensor_type === 'car_presence') out.carDetected = r.value === 1;
-    if (r.sensor_type === 'light_relay') out.lightOn = r.value === 1;
-    if (r.sensor_type === 'fan_relay') out.fanOn = r.value === 1;
-    if (r.sensor_type === 'cutoff_relay') out.cutoffOn = r.value === 1;
-  });
-  return out;
-}
-
-// Map real-time JSON frames coming from Django Channels WebSocket
-function mapWsMessage(msg) {
-  const out = {};
-  if (msg.temperature !== undefined) out.temperature = msg.temperature;
-  if (msg.humidity !== undefined) out.humidity = msg.humidity;
-  if (msg.gas_percent !== undefined) out.gas = msg.gas_percent;
-  if (msg.light_percent !== undefined) out.light = msg.light_percent;
-  if (msg.current_amps !== undefined) out.current = msg.current_amps;
-  if (msg.distance_cm !== undefined) out.distance = msg.distance_cm;
-  if (msg.window_open !== undefined) out.windowOpen = msg.window_open;
-  if (msg.motion !== undefined) out.motion = msg.motion;
-  if (msg.car_detected !== undefined) out.carDetected = msg.car_detected;
-  if (msg.light_on !== undefined) out.lightOn = msg.light_on;
-  if (msg.fan_on !== undefined) out.fanOn = msg.fan_on;
-  if (msg.cutoff_on !== undefined) out.cutoffOn = msg.cutoff_on;
-  return out;
-}
+import client from '../api/client';
 
 export default function Dashboard() {
-  const { householdId } = useAuth();
-  const [stats, setStats] = useState({ 
-    temperature: null, 
-    humidity: null, 
-    gas: null, 
-    light: null, 
-    current: null, 
-    distance: null, 
-    windowOpen: false, 
-    motion: false,
-    carDetected: false,
-    lightOn: false,
-    fanOn: false,
-    cutoffOn: false
-  });
-  const [history, setHistory] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [device, setDevice] = useState(null);
+  const { householdName } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [sysStatus, setSysStatus] = useState('OFFLINE');
+  
+  // Real-time sensor state map
+  const [metrics, setMetrics] = useState({
+    temperature: 0, humidity: 0,
+    gas_percent: 0, flame_detected: false,
+    car_detected: false, water_leak: false,
+    motion: false, is_dark: false, current_amps: 0.0
+  });
 
-  // Core WebSocket streams managed via native hooks
-  const { lastMessage, status } = useWebSocket('/ws/sensors/', householdId);
-  const { lastMessage: alertMessage } = useWebSocket('/ws/alerts/', householdId);
+  // Actuator hardware states
+  const [controls, setControls] = useState({
+    light_on: false,
+    fan_on: false,
+    door_unlocked: false
+  });
 
-  // Initial load: pick the primary device in the household, sync readings + alert stack
-  useEffect(() => {
-    if (!householdId) return;
-    (async () => {
-      try {
-        const devicesRes = await client.get('/api/devices/');
-        if (devicesRes.data.length === 0) { 
-          setLoading(false); 
-          return; 
-        }
-        const primaryDevice = devicesRes.data[0];
-        setDevice(primaryDevice);
-
-        const [latestRes, alertsRes] = await Promise.all([
-          client.get(`/api/sensors/latest/?device_id=${primaryDevice.id}`),
-          client.get(`/api/alerts/?device_id=${primaryDevice.id}`),
-        ]);
-        setStats((s) => ({ ...s, ...mapLatestReadings(latestRes.data) }));
-        setAlerts(alertsRes.data.slice(0, 5));
-      } catch (err) {
-        console.error('Failed to load dashboard data:', err);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [householdId]);
-
-  // Handle incoming live telemetry frames
-  useEffect(() => {
-    if (!lastMessage) return;
-    const mapped = mapWsMessage(lastMessage);
-    setStats((s) => ({ ...s, ...mapped }));
-    
-    if (mapped.temperature !== undefined) {
-      setHistory((prev) => [
-        ...prev.slice(-11), 
-        {
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          temp: mapped.temperature,
-        }
-      ]);
-    }
-  }, [lastMessage]);
-
-  // Handle incoming live alerts broadcast
-  useEffect(() => {
-    if (!alertMessage) return;
-    setAlerts((prev) => [
-      { 
-        id: alertMessage.id || Date.now(), 
-        severity: alertMessage.severity || 'warning', 
-        message: alertMessage.message, 
-        time: 'Just now' 
-      }, 
-      ...prev
-    ].slice(0, 5));
-  }, [alertMessage]);
-
-  // Dispatches actions down the PostgreSQL Command table queue
-  const sendCommand = async (action, payload = {}) => {
-    if (!device) return;
+  // Fetch latest data from the Django Backend
+  const fetchTelemetry = useCallback(async () => {
     try {
-      await client.post('/api/commands/send/', { 
-        device: device.id, 
-        action, 
-        payload 
+      const res = await client.get('/api/sensors/latest/');
+      if (res.data && res.data.length > 0) {
+        setMetrics(res.data[0]); // Assuming backend returns an array of latest readings
+        setSysStatus('ONLINE');
+      }
+    } catch (err) {
+      setSysStatus('OFFLINE');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Poll every 3 seconds for live dashboard updates
+  useEffect(() => {
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 3000);
+    return () => clearInterval(interval);
+  }, [fetchTelemetry]);
+
+  // Command Execution Bus
+  const dispatchCommand = async (actuator, actionName) => {
+    // Optimistic UI update for instantaneous feel
+    setControls(prev => ({ ...prev, [actuator]: !prev[actuator] }));
+    
+    try {
+      await client.post('/api/commands/send/', {
+        device_id: 1, // Main ESP32 ID
+        action: actionName
       });
     } catch (err) {
-      console.error('Command transmission failed:', err);
+      // Revert if command fails
+      console.error("Hardware command failed", err);
+      setControls(prev => ({ ...prev, [actuator]: !prev[actuator] }));
     }
   };
 
-  if (loading) return <div className="sn-page-loading">Loading dashboard…</div>;
-
-  if (!device) {
+  // Reusable CSS for Needle Gauges
+  const renderDial = (value, max, label, unit, color) => {
+    const percentage = Math.min(Math.max(value / max, 0), 1) * 100;
     return (
-      <div className="sn-page">
-        <h1 className="sn-page-title">Home Overview</h1>
-        <p className="sn-page-subtitle">No operational devices detected. Provision an ESP32 board under Devices to begin monitoring.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+        <div style={{
+          position: 'relative', width: '90px', height: '90px', borderRadius: '50%',
+          background: `conic-gradient(${color} ${percentage}%, #232A33 ${percentage}%)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: 'inset 0 4px 10px rgba(0,0,0,0.5), 0 2px 10px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{ 
+            width: '74px', height: '74px', borderRadius: '50%', background: '#12161B', 
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            border: '1px solid rgba(255,255,255,0.05)'
+          }}>
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.1rem', fontWeight: 'bold' }}>{value.toFixed(1)}</span>
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.6rem' }}>{unit}</span>
+          </div>
+        </div>
+        <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', letterSpacing: '0.05em' }}>{label}</span>
       </div>
     );
-  }
+  };
 
   return (
-    <div className="sn-page">
-      {/* Dynamic Header System */}
-      <div className="sn-page-header">
+    <div className="sn-page" style={{ paddingBottom: '40px' }}>
+      
+      {/* Dynamic Hardware Toggles CSS */}
+      <style>{`
+        .hw-toggle {
+          appearance: none; width: 44px; height: 24px; background: #12161B;
+          border-radius: 12px; position: relative; cursor: pointer; outline: none;
+          border: 1px solid rgba(255,255,255,0.1); transition: all 0.3s;
+          box-shadow: inset 0 2px 6px rgba(0,0,0,0.6);
+        }
+        .hw-toggle::after {
+          content: ''; position: absolute; top: 2px; left: 2px;
+          width: 18px; height: 18px; background: #8C95A3; borderRadius: 50%;
+          transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .hw-toggle:checked { background: rgba(198, 129, 63, 0.2); border-color: #C6813F; }
+        .hw-toggle:checked::after { transform: translateX(20px); background: #C6813F; }
+        
+        .panel-card {
+          background: #1B2028; border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 8px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+        }
+      `}</style>
+
+      {/* Global Telemetry Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '16px' }}>
         <div>
-          <h1 className="sn-page-title">Home Overview</h1>
-          <p className="sn-page-subtitle">{device.name} · {device.location}</p>
-        </div>
-        <div className="sn-live-indicator">
-          <LiveDot color={status === 'open' ? 'var(--status-safe)' : 'var(--status-warning)'} />
-          <span className="label-eyebrow">{status === 'open' ? 'Live Stream Active' : 'Reconnecting to Host'}</span>
-        </div>
-      </div>
-
-      {/* Primary Telemetry Grid Matrix */}
-      <div className="sn-grid sn-grid-4">
-        <PanelCard title="Temperature" icon={Thermometer}>
-          <div className="sn-stat-row">
-            <span className="readout sn-stat-value">{stats.temperature ?? '—'}<span className="sn-stat-unit">°C</span></span>
-            <StatusPill status={stats.temperature > 28 ? 'warning' : 'safe'} />
-          </div>
-        </PanelCard>
-        
-        <PanelCard title="Humidity" icon={Droplets}>
-          <div className="sn-stat-row">
-            <span className="readout sn-stat-value">{stats.humidity !== null ? Math.round(stats.humidity) : '—'}<span className="sn-stat-unit">%</span></span>
-            <StatusPill status="safe" />
-          </div>
-        </PanelCard>
-        
-        <PanelCard title="Air Quality (MQ-2)" icon={Wind}>
-          <div className="sn-stat-row">
-            <span className="readout sn-stat-value">{stats.gas !== null ? Math.round(stats.gas) : '—'}<span className="sn-stat-unit">%</span></span>
-            <StatusPill status={stats.gas > 50 ? 'critical' : stats.gas > 30 ? 'warning' : 'safe'} />
-          </div>
-        </PanelCard>
-        
-        <PanelCard title="Garage Range" icon={Car}>
-          <div className="sn-stat-row">
-            <span className="readout sn-stat-value">{stats.distance !== null ? Math.round(stats.distance) : '—'}<span className="sn-stat-unit">cm</span></span>
-            <StatusPill status={stats.carDetected ? 'warning' : 'safe'} text={stats.carDetected ? 'VEHICLE' : 'EMPTY'} />
-          </div>
-        </PanelCard>
-      </div>
-
-      {/* Main Analytical Instruments Layout */}
-      <div className="sn-dashboard-main">
-        {/* Recharts Live Stream Data Flow Component */}
-        <PanelCard title="Temperature Trend — Real Time" icon={Activity} className="sn-chart-panel">
-          {history.length > 1 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={history}>
-                <CartesianGrid stroke="var(--border-subtle)" vertical={false} />
-                <XAxis dataKey="time" stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} domain={['dataMin - 1', 'dataMax + 1']} />
-                <Tooltip contentStyle={{ background: 'var(--bg-panel-raised)', border: '1px solid var(--border-subtle)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 12 }} labelStyle={{ color: 'var(--text-secondary)' }} />
-                <Line type="monotone" dataKey="temp" stroke="var(--accent-copper-bright)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="sn-page-subtitle" style={{ padding: '40px 0', textAlign: 'center' }}>
-              Awaiting localized telemetry packets to construct the temporal gradient trend line...
-            </p>
-          )}
-        </PanelCard>
-
-        {/* Compound Peripheral Perimeter Security Block */}
-        <PanelCard title="Perimeter Security Status" icon={ShieldCheck}>
-          <div className="sn-security-summary">
-            <div className="sn-security-item">
-              <DoorClosed size={20} className="sn-security-icon" />
-              <span>Magnetic Reed Switch</span>
-              <StatusPill status={stats.windowOpen ? 'warning' : 'safe'} text={stats.windowOpen ? 'OPEN' : 'SECURE'} />
-            </div>
-            <div className="sn-security-item">
-              <ShieldCheck size={20} className="sn-security-icon" />
-              <span>PIR Motion Array</span>
-              <StatusPill status={stats.motion ? 'warning' : 'safe'} text={stats.motion ? 'ALERT' : 'CLEAR'} />
-            </div>
-            <div className="sn-security-item">
-              <Car size={20} className="sn-security-icon" />
-              <span>Ultrasonic Proximity</span>
-              <StatusPill status={stats.carDetected ? 'warning' : 'safe'} text={stats.carDetected ? 'ENGAGED' : 'VACANT'} />
-            </div>
-          </div>
-        </PanelCard>
-      </div>
-
-      {/* Lower Parametric Controls & Machine Learning Data Inference Matrices */}
-      <div className="sn-dashboard-lower">
-        {/* Dial Analog Instrument Representation Cluster */}
-        <PanelCard title="Operational Instrument Telemetry" icon={Zap}>
-          <div className="sn-gauge-row">
-            <DialGauge value={stats.current ?? 0} max={5} unit="A" label="Current Load (ACS712)" thresholds={{ warning: 2.5, critical: 3.5 }} />
-            <DialGauge value={stats.light ?? 0} max={100} unit="%" label="Ambient Intensity (LDR)" thresholds={{ warning: 75, critical: 90 }} />
-          </div>
-        </PanelCard>
-
-        {/* Full Interactive Actuator Integration Framework */}
-        <PanelCard title="Actuator Management Matrix" icon={Zap} accent>
-          <ToggleSwitch
-            label="Living Room Lighting"
-            icon={Lightbulb}
-            checked={stats.lightOn ?? false}
-            onChange={(v) => sendCommand(v ? 'light_on' : 'light_off')}
-          />
-          <ToggleSwitch
-            label="Ventilation Extraction Fan"
-            icon={Fan}
-            checked={stats.fanOn ?? false}
-            onChange={(v) => sendCommand(v ? 'fan_on' : 'fan_off')}
-          />
-          <ToggleSwitch
-            label="Emergency Cutoff Relay"
-            icon={Flame}
-            checked={stats.cutoffOn ?? false}
-            onChange={() => {}}
-            disabled
-          />
-          <p className="sn-auto-note" style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: '1.4' }}>
-            These parameters represent true hardware status states returned directly from the ESP32 safety bus. 
-            Phase 5 polling loops process remote instructions while preventing overrides from breaching autonomous safety thresholds.
+          <h1 style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1.8rem', margin: '0 0 8px 0' }}>Main Control Matrix</h1>
+          <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', margin: 0, fontSize: '0.85rem' }}>
+            DOME: {householdName?.toUpperCase() || 'THE NEXUS'} // TERMINAL_ACTIVE
           </p>
-        </PanelCard>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#12161B', padding: '8px 16px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <Activity size={16} style={{ color: sysStatus === 'ONLINE' ? '#4CAF7D' : '#E15554' }} />
+          <span style={{ fontFamily: 'JetBrains Mono', color: sysStatus === 'ONLINE' ? '#4CAF7D' : '#E15554', fontSize: '0.85rem', fontWeight: 'bold' }}>
+            {sysStatus}
+          </span>
+        </div>
+      </div>
 
-        {/* Recent Predictive Machine Learning Inference Output / Alert Cluster */}
-        <PanelCard title="Real-Time Anomalies & Signals" icon={TriangleAlert}>
-          <div className="sn-alert-feed">
-            {/* Embedded Predictive ML Weights Interface Sub-Panel */}
-            <div className="sn-ml-inference-summary" style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontFamily: 'var(--font-mono)', marginBottom: '4px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>ML Anomaly Engine:</span>
-                <span style={{ color: 'var(--status-safe)', fontWeight: 'bold' }}>99.4% Safe</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+        
+        {/* MODULE 1: Analog Instrumentation (Dials) */}
+        <div className="panel-card" style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-around', gap: '20px' }}>
+          {renderDial(metrics.temperature, 50, 'TEMP_CORE', '°C', '#E0A868')}
+          {renderDial(metrics.humidity, 100, 'ATMOS_HUMIDITY', '%', '#4CAF7D')}
+          {renderDial(metrics.gas_percent, 100, 'MQ2_GAS_LVL', '%', metrics.gas_percent > 40 ? '#E15554' : '#C6813F')}
+          {renderDial(metrics.current_amps, 5, 'POWER_DRAW', 'AMP', '#8C95A3')}
+        </div>
+
+        {/* MODULE 2: Security & Access (Front Gate & Garage) */}
+        <div className="panel-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+            <Unlock size={18} style={{ color: '#C6813F' }} />
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.9rem' }}>PERIMETER_SECURITY</span>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12161B', padding: '16px', borderRadius: '6px' }}>
+              <div>
+                <span style={{ display: 'block', fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>FRONT_GATE_SERVO</span>
+                <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem' }}>RFID / Remote Override</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Energy Usage Forecast:</span>
-                <span style={{ color: 'var(--accent-copper-bright)', fontWeight: 'bold' }}>14.2 kWh/day</span>
-              </div>
+              <button 
+                onClick={() => dispatchCommand('door_unlocked', 'unlock_door')}
+                style={{ 
+                  background: controls.door_unlocked ? '#4CAF7D' : '#232A33', color: '#EDEFF3', border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '8px 16px', borderRadius: '4px', fontFamily: 'JetBrains Mono', cursor: 'pointer', fontSize: '0.8rem', transition: '0.2s'
+                }}>
+                {controls.door_unlocked ? 'OPEN' : 'LOCKED'}
+              </button>
             </div>
 
-            {alerts.length === 0 && <p className="sn-page-subtitle">All systems operational. No structural flags raised.</p>}
-            {alerts.map((a) => (
-              <div key={a.id} className="sn-alert-item">
-                <span className={`sn-alert-dot sn-alert-${a.severity}`} />
-                <div className="sn-alert-text">
-                  <span>{a.message}</span>
-                  <span className="sn-alert-time">{a.time || new Date(a.timestamp).toLocaleTimeString()}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12161B', padding: '16px', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Car size={20} style={{ color: metrics.car_detected ? '#C6813F' : '#8C95A3' }} />
+                <div>
+                  <span style={{ display: 'block', fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>GARAGE_BAY_SONAR</span>
+                  <span style={{ fontFamily: 'JetBrains Mono', color: metrics.car_detected ? '#C6813F' : '#8C95A3', fontSize: '0.7rem' }}>
+                    {metrics.car_detected ? 'VEHICLE_PRESENT' : 'BAY_CLEAR'}
+                  </span>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
-        </PanelCard>
+        </div>
+
+        {/* MODULE 3: Environment Controls (Actuator Relays) */}
+        <div className="panel-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+            <Zap size={18} style={{ color: '#C6813F' }} />
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.9rem' }}>RELAY_ACTUATORS</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12161B', padding: '16px', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Lightbulb size={20} style={{ color: controls.light_on ? '#E0A868' : '#8C95A3' }} />
+                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>MAIN_LIGHTING</span>
+              </div>
+              <input 
+                type="checkbox" 
+                className="hw-toggle" 
+                checked={controls.light_on} 
+                onChange={(e) => dispatchCommand('light_on', e.target.checked ? 'light_on' : 'light_off')} 
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12161B', padding: '16px', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Fan size={20} style={{ color: controls.fan_on ? '#4CAF7D' : '#8C95A3' }} />
+                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>HVAC_FAN_L298N</span>
+              </div>
+              <input 
+                type="checkbox" 
+                className="hw-toggle" 
+                checked={controls.fan_on} 
+                onChange={(e) => dispatchCommand('fan_on', e.target.checked ? 'fan_on' : 'fan_off')} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* MODULE 4: Hazard & Safety Matrix */}
+        <div className="panel-card" style={{ gridColumn: '1 / -1' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
+            <ShieldAlert size={18} style={{ color: '#E15554' }} />
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.9rem' }}>HAZARD_DETECTION_BUS</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: metrics.flame_detected ? 'rgba(225,85,84,0.1)' : '#12161B', padding: '16px', borderRadius: '6px', border: metrics.flame_detected ? '1px solid #E15554' : '1px solid rgba(255,255,255,0.05)' }}>
+              <Flame size={24} style={{ color: metrics.flame_detected ? '#E15554' : '#8C95A3' }} />
+              <div>
+                <span style={{ display: 'block', fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>KITCHEN_FLAME</span>
+                <span style={{ fontFamily: 'JetBrains Mono', color: metrics.flame_detected ? '#E15554' : '#4CAF7D', fontSize: '0.75rem' }}>{metrics.flame_detected ? 'CRITICAL_FIRE' : 'SAFE'}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: metrics.water_leak ? 'rgba(225,85,84,0.1)' : '#12161B', padding: '16px', borderRadius: '6px', border: metrics.water_leak ? '1px solid #E15554' : '1px solid rgba(255,255,255,0.05)' }}>
+              <Droplets size={24} style={{ color: metrics.water_leak ? '#E15554' : '#8C95A3' }} />
+              <div>
+                <span style={{ display: 'block', fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>TANK_LEAK_SENSOR</span>
+                <span style={{ fontFamily: 'JetBrains Mono', color: metrics.water_leak ? '#E15554' : '#4CAF7D', fontSize: '0.75rem' }}>{metrics.water_leak ? 'LEAK_DETECTED' : 'DRY'}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: metrics.motion ? 'rgba(198,129,63,0.1)' : '#12161B', padding: '16px', borderRadius: '6px', border: metrics.motion ? '1px solid #C6813F' : '1px solid rgba(255,255,255,0.05)' }}>
+              <Activity size={24} style={{ color: metrics.motion ? '#C6813F' : '#8C95A3' }} />
+              <div>
+                <span style={{ display: 'block', fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}>ROOM_PIR_MOTION</span>
+                <span style={{ fontFamily: 'JetBrains Mono', color: metrics.motion ? '#C6813F' : '#8C95A3', fontSize: '0.75rem' }}>{metrics.motion ? 'MOTION_ACTIVE' : 'IDLE'}</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     </div>
   );
