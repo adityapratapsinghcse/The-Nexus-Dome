@@ -81,3 +81,34 @@ def my_households(request):
     """
     memberships = Membership.objects.filter(user=request.user)
     return Response(MembershipSerializer(memberships, many=True).data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def household_members(request):
+    """
+    GET /api/auth/household-members/?household_id=1
+    Lists every member of a household (owner + members) with their role.
+    Only visible to someone who is themselves a member of that household.
+    """
+    household_id = request.query_params.get('household_id')
+
+    if not household_id:
+        return Response({"error": "Missing household_id parameter"}, status=400)
+
+    # 1. Security Check: Validate that the requesting user belongs to the household
+    is_member = Membership.objects.filter(user=request.user, household_id=household_id).exists()
+    if not is_member:
+        return Response({"error": "You are not part of this household"}, status=403)
+
+    # 2. Database Fetch: Grab all records, pre-fetching the related User model to prevent N+1 query lag
+    members = Membership.objects.filter(household_id=household_id).select_related('user').order_by('-role', 'joined_at')
+    
+    # 3. Flat Serialization: Explicitly map fields so React can instantly read 'm.username' and 'm.role'
+    data = [{
+        "id": m.id,
+        "username": m.user.username,
+        "role": m.role,
+        "joined_at": m.joined_at.isoformat() if m.joined_at else ""
+    } for m in members]
+    
+    return Response(data)

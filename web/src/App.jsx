@@ -12,6 +12,8 @@ import Security from './pages/Security';
 import Climate from './pages/Climate';
 import Safety from './pages/Safety';
 import Energy from './pages/Energy';
+import Household from './pages/Household';
+import Profile from './pages/Profile';
 
 function ProtectedLayout({ children }) {
   const { token, loading } = useAuth();
@@ -87,6 +89,24 @@ function AppRoutes() {
         element={
           <ProtectedLayout>
             <Energy />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/household"
+        element={
+          <ProtectedLayout>
+            <Household />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/profile"
+        element={
+          <ProtectedLayout>
+            <Profile />
           </ProtectedLayout>
         }
       />

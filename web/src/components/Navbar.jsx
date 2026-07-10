@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import {LayoutDashboard,ShieldCheck,Thermometer,AlertTriangle,Zap,Menu,X,LogOut,} from 'lucide-react';
+import {
+  LayoutDashboard,
+  ShieldCheck,
+  Thermometer,
+  AlertTriangle,
+  Zap,
+  Users,
+  UserCircle,
+  Menu,
+  X,
+  LogOut,
+} from 'lucide-react';
+
 import { useAuth } from '../context/AuthContext';
 import { NotificationBell } from './NotificationBell';
 
@@ -10,6 +22,8 @@ const navItems = [
   { to: '/climate', label: 'Climate', icon: Thermometer },
   { to: '/safety', label: 'Safety', icon: AlertTriangle },
   { to: '/energy', label: 'Energy', icon: Zap },
+  { to: '/household', label: 'Household', icon: Users },
+  { to: '/profile', label: 'Profile', icon: UserCircle },
 ];
 
 export default function Navbar() {
@@ -23,11 +37,14 @@ export default function Navbar() {
         setDrawerOpen(false);
       }
     };
+
     window.addEventListener('resize', handleResize);
+
     return () => {
       window.removeEventListener('resize', handleResize);
     };
   }, []);
+
   return (
     <>
       <header className="sn-topbar">
@@ -100,7 +117,9 @@ export default function Navbar() {
 
       {/* Mobile Drawer */}
       <aside
-        className={`sn-drawer${drawerOpen ? ' sn-drawer-open' : ''}`}
+        className={`sn-drawer${
+          drawerOpen ? ' sn-drawer-open' : ''
+        }`}
       >
         <div className="sn-drawer-header">
           <div className="sn-brand-row">

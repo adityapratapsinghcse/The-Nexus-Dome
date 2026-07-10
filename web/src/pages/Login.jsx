@@ -28,7 +28,38 @@ export default function Login() {
       }
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Something went wrong. Check your details and try again.');
+      console.error("Authentication action failed:", err);
+      
+      // Parse structured Django Rest Framework field errors validation dictionary
+      if (err.response && err.response.data) {
+        const data = err.response.data;
+        
+        if (data.error) {
+          setError(data.error);
+        } else if (typeof data === 'object') {
+          // Extract specific field errors (e.g., {"password": ["Ensure this field has at least 6 characters."]})
+          const errorFields = Object.keys(data);
+          if (errorFields.length > 0) {
+            const firstField = errorFields[0];
+            const fieldMessages = data[firstField];
+            
+            if (Array.isArray(fieldMessages) && fieldMessages.length > 0) {
+              const formattedFieldName = firstField.charAt(0).toUpperCase() + firstField.slice(1);
+              setError(`${formattedFieldName}: ${fieldMessages[0]}`);
+            } else if (typeof fieldMessages === 'string') {
+              setError(fieldMessages);
+            } else {
+              setError('Validation failed. Please verify your inputs.');
+            }
+          } else {
+            setError('Form error occurred. Please check your data fields.');
+          }
+        } else {
+          setError('An unexpected system authentication error occurred.');
+        }
+      } else {
+        setError('Network connectivity failure. Unable to contact backend control service.');
+      }
     } finally {
       setBusy(false);
     }
