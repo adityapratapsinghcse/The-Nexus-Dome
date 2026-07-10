@@ -23,8 +23,10 @@ export default function Household() {
       const res = await client.get('/api/auth/household-members/', {
         params: { household_id: householdId },
       });
+      
+      // Now that the backend sends 'is_active', this filter works perfectly
       setMembers(res.data.filter(m => m.is_active || m.role === 'owner'));
-      setRequests(res.data.filter(m => !m.is_active && m.role !== 'owner'));
+      setRequests(res.data.filter(m => m.is_active === false && m.role !== 'owner'));
       
       const me = res.data.find((m) => m.username === localStorage.getItem('smartnest_username'));
       setMyRole(me?.role ?? null);
@@ -39,6 +41,7 @@ export default function Household() {
     loadData();
   }, [loadData]);
 
+  // Live Autocomplete Effect
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (searchQuery.trim().length >= 2) {
@@ -47,7 +50,7 @@ export default function Household() {
           setSearchResults(res.data);
           setShowDropdown(true);
         } catch (err) {
-          console.error(err);
+          console.error("Search failed. Check if /api/auth/search-users/ is in Django urls.py", err);
         }
       } else {
         setSearchResults([]);
@@ -63,12 +66,15 @@ export default function Household() {
     setBusy(true);
     setMsg(null);
     try {
+      // Note: Owners adding someone directly makes them instantly ACTIVE. 
+      // Link Members registering from the login page creates PENDING requests.
       await client.post('/api/auth/invite/', {
         household_id: householdId,
         username: searchQuery.trim(),
       });
       setMsg({ type: 'ok', text: `PROVISIONED: ${searchQuery} active.` });
       setSearchQuery('');
+      setShowDropdown(false);
       loadData();
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.error || 'Execution link dropped.' });
@@ -127,8 +133,8 @@ export default function Household() {
           )}
         </div>
 
-        {/* Access Provisioning Box */}
-        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', position: 'relative' }}>
+        {/* Access Provisioning Box - OVERFLOW VISIBLE ADDED HERE */}
+        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', position: 'relative', overflow: 'visible' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
             <UserPlus size={16} style={{ color: '#C6813F' }} />
             <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>DIRECT_PROVISION_NODE</span>
@@ -137,31 +143,32 @@ export default function Household() {
           {isOwner ? (
             <form onSubmit={handleInvite} style={{ position: 'relative' }} autoComplete="off">
               <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'block', marginBottom: '6px' }}>TARGET_USER_SEARCH</label>
-              <div style={{ display: 'flex', alignItems: 'center', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '4px', padding: '2px 10px' }}>
+              
+              <div style={{ display: 'flex', alignItems: 'center', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '4px', padding: '2px 10px', position: 'relative' }}>
                 <Search size={14} style={{ color: '#8C95A3', marginRight: '8px' }} />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onFocus={() => { if(searchResults.length > 0) setShowDropdown(true); }}
-                  placeholder="Scan username..."
+                  placeholder="Type username..."
                   required
                   style={{ width: '100%', background: 'none', border: 0, padding: '8px 0', color: '#EDEFF3', fontFamily: 'JetBrains Mono', outline: 'none' }}
                 />
               </div>
 
-              {/* Floating Dropdown Result Stack */}
+              {/* Floating Dropdown - Higher Z-Index */}
               {showDropdown && searchResults.length > 0 && (
                 <div style={{ 
-                  position: 'absolute', top: '70px', left: '20px', right: '20px', 
+                  position: 'absolute', top: '65px', left: '0', right: '0', 
                   background: '#232A33', border: '1px solid rgba(255,255,255,0.1)', 
-                  borderRadius: '4px', zIndex: 99, boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                  borderRadius: '4px', zIndex: 9999, boxShadow: '0 12px 32px rgba(0,0,0,0.6)'
                 }}>
                   {searchResults.map(u => (
                     <div 
                       key={u.id} 
                       onClick={() => { setSearchQuery(u.username); setShowDropdown(false); }} 
-                      style={{ padding: '10px 14px', fontFamily: 'JetBrains Mono', color: '#EDEFF3', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem' }}
-                      onMouseEnter={(e) => e.target.style.background = '#1B2028'}
+                      style={{ padding: '12px 16px', fontFamily: 'JetBrains Mono', color: '#EDEFF3', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem', transition: 'background 0.2s' }}
+                      onMouseEnter={(e) => e.target.style.background = '#12161B'}
                       onMouseLeave={(e) => e.target.style.background = 'transparent'}
                     >
                       {u.username}
@@ -170,7 +177,7 @@ export default function Household() {
                 </div>
               )}
 
-              <button style={{ width: '100%', marginTop: '12px', background: '#C6813F', color: '#EDEFF3', border: 0, padding: '10px', fontFamily: 'JetBrains Mono', cursor: 'pointer', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }} disabled={busy}>
+              <button style={{ width: '100%', marginTop: '16px', background: '#C6813F', color: '#EDEFF3', border: 0, padding: '12px', fontFamily: 'JetBrains Mono', cursor: 'pointer', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }} disabled={busy}>
                 {busy ? 'SYNCHRONIZING...' : 'AUTHORIZE_OPERATOR'}
               </button>
             </form>
