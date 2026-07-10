@@ -23,12 +23,13 @@ export default function Dashboard() {
     door_unlocked: false
   });
 
-  // Fetch latest data from the Django Backend
+// Fetch latest data from the Django Backend
   const fetchTelemetry = useCallback(async () => {
     try {
       const res = await client.get('/api/sensors/latest/');
       if (res.data && res.data.length > 0) {
-        setMetrics(res.data[0]); // Assuming backend returns an array of latest readings
+        // MERGE the data instead of replacing it completely
+        setMetrics(prev => ({ ...prev, ...res.data[0] })); 
         setSysStatus('ONLINE');
       }
     } catch (err) {
@@ -64,7 +65,10 @@ export default function Dashboard() {
 
   // Reusable CSS for Needle Gauges
   const renderDial = (value, max, label, unit, color) => {
-    const percentage = Math.min(Math.max(value / max, 0), 1) * 100;
+    // FORCE the value to be a number, fallback to 0 if undefined/null
+    const safeValue = Number(value) || 0; 
+    const percentage = Math.min(Math.max(safeValue / max, 0), 1) * 100;
+    
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
         <div style={{
@@ -78,7 +82,9 @@ export default function Dashboard() {
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             border: '1px solid rgba(255,255,255,0.05)'
           }}>
-            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.1rem', fontWeight: 'bold' }}>{value.toFixed(1)}</span>
+            <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.1rem', fontWeight: 'bold' }}>
+              {safeValue.toFixed(1)}
+            </span>
             <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.6rem' }}>{unit}</span>
           </div>
         </div>
