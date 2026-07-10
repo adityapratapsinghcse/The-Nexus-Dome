@@ -12,6 +12,8 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from alerts.push import send_alert_push
 from alerts.models import Alert
+import logging
+
 
 # Maps the flat JSON fields your ESP32 sends to (sensor_type, unit) pairs
 SENSOR_FIELD_MAP = {
