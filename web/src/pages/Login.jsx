@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, User, Home, ShieldAlert, Cpu, Radio, ShieldCheck } from 'lucide-react';
+import { Lock, User, Home, ShieldAlert, ShieldCheck, CheckCircle2, ArrowRight, Activity } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
@@ -14,6 +14,8 @@ export default function Login() {
   const [targetOwnerUsername, setTargetOwnerUsername] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [successState, setSuccessState] = useState(null); // Holds the success message
+  
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -37,11 +39,15 @@ export default function Login() {
         });
         
         if (roleType === 'owner') {
+          // Auto-login owners immediately
           await login(username, password);
           navigate('/');
         } else {
-          setError('SUCCESS: Link request transmitted to Owner panel. Awaiting activation.');
-          setMode('login');
+          // Trigger the beautiful SaaS Success State for members
+          setSuccessState({
+            title: 'Request Transmitted',
+            message: `A secure link request has been sent to Owner [${targetOwnerUsername}]. You will gain access once they authorize your profile in their control panel.`
+          });
         }
       }
     } catch (err) {
@@ -60,8 +66,14 @@ export default function Login() {
     }
   };
 
+  const resetToLogin = () => {
+    setSuccessState(null);
+    setMode('login');
+    setPassword('');
+  };
+
   return (
-    <div className="sn-login-wrap" style={{ 
+    <div style={{ 
       background: '#12161B', 
       minHeight: '100vh', 
       display: 'flex', 
@@ -69,210 +81,250 @@ export default function Login() {
       justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
-      padding: '20px'
+      padding: '24px'
     }}>
-      {/* Embedded Instrument Styling Code Block */}
+      {/* SaaS Glassmorphism & Animation CSS */}
       <style>{`
-        @keyframes scanline {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100%); }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes panelPulse {
-          0% { box-shadow: 0 0 20px rgba(198,129,63,0.05); }
-          50% { box-shadow: 0 0 30px rgba(198,129,63,0.15); }
-          100% { box-shadow: 0 0 20px rgba(198,129,63,0.05); }
+        @keyframes pulseGlow {
+          0% { transform: scale(1); opacity: 0.15; }
+          50% { transform: scale(1.1); opacity: 0.25; }
+          100% { transform: scale(1); opacity: 0.15; }
         }
-        .animate-scan {
-          position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-          background: linear-gradient(rgba(198,129,63,0) 0%, rgba(198,129,63,0.03) 10%, rgba(198,129,63,0) 20%);
-          animation: scanline 8s linear infinite;
-          pointer-events: none;
+        .bg-orb {
+          position: absolute;
+          width: 60vw;
+          height: 60vw;
+          max-width: 800px;
+          max-height: 800px;
+          border-radius: 50%;
+          background: radial-gradient(circle, #C6813F 0%, transparent 70%);
+          animation: pulseGlow 12s ease-in-out infinite;
+          filter: blur(80px);
+          z-index: 0;
         }
-        .breaker-switch {
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        .glass-panel {
+          background: rgba(27, 32, 40, 0.75);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          box-shadow: 0 24px 48px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
         }
-        .breaker-switch:active {
-          transform: scale(0.95);
+        .saas-input {
+          width: 100%;
+          background: rgba(18, 22, 27, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 14px 16px;
+          color: #EDEFF3;
+          font-family: 'JetBrains Mono', monospace;
+          border-radius: 8px;
+          font-size: 0.95rem;
+          transition: all 0.2s ease;
+          box-sizing: border-box;
         }
-        .input-glow:focus {
+        .saas-input:focus {
           outline: none;
-          border-color: #C6813F !important;
-          box-shadow: 0 0 8px rgba(198,129,63,0.2);
+          border-color: #C6813F;
+          background: rgba(18, 22, 27, 0.9);
+          box-shadow: 0 0 0 3px rgba(198, 129, 63, 0.15);
+        }
+        .saas-btn {
+          width: 100%;
+          background: linear-gradient(135deg, #E0A868 0%, #C6813F 100%);
+          border: 0;
+          padding: 16px;
+          color: #12161B;
+          font-family: 'JetBrains Mono', monospace;
+          cursor: pointer;
+          border-radius: 8px;
+          font-size: 0.95rem;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          transition: transform 0.1s, box-shadow 0.2s;
+          box-shadow: 0 4px 14px rgba(198, 129, 63, 0.3);
+        }
+        .saas-btn:active {
+          transform: scale(0.98);
+        }
+        .saas-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+        .segment-control {
+          display: flex;
+          background: rgba(18, 22, 27, 0.6);
+          padding: 4px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .segment-btn {
+          flex: 1;
+          padding: 10px;
+          border-radius: 6px;
+          border: none;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
         }
       `}</style>
 
-      <div className="animate-scan" />
+      {/* Atmospheric Background Effects */}
+      <div className="bg-orb" style={{ top: '-10%', left: '-10%' }} />
+      <div className="bg-orb" style={{ bottom: '-20%', right: '-10%', background: 'radial-gradient(circle, #232A33 0%, transparent 60%)' }} />
 
-      {/* Main Enclosure Card */}
-      <div className="ui-panel" style={{ 
-        background: '#1B2028', 
-        border: '1px solid rgba(255,255,255,0.07)', 
-        padding: '32px', 
+      {/* Main Container - Expanded width for SaaS feel */}
+      <div className="glass-panel" style={{ 
         width: '100%',
-        maxWidth: '420px',
-        borderRadius: '8px',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-        animation: 'panelPulse 4s ease-in-out infinite',
+        maxWidth: '520px',
+        borderRadius: '16px',
+        padding: '40px',
         position: 'relative',
-        zIndex: 2
+        zIndex: 2,
+        animation: 'fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1)'
       }}>
-        {/* Top Operational Header */}
-        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '16px', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Radio size={16} style={{ color: '#C6813F' }} />
-              <span style={{ position: 'absolute', top: -2, right: -2, width: 6, height: 6, borderRadius: '50%', background: '#4CAF7D' }} />
+
+        {/* Dedicated Success State Override */}
+        {successState ? (
+          <div style={{ textAlign: 'center', animation: 'fadeUp 0.4s ease-out' }}>
+            <div style={{ 
+              width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(76, 175, 125, 0.1)', 
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
+              border: '1px solid rgba(76, 175, 125, 0.3)'
+            }}>
+              <CheckCircle2 size={40} style={{ color: '#4CAF7D' }} />
             </div>
-            <div>
-              <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '1.1rem', letterSpacing: '0.08em', fontWeight: 'bold', display: 'block' }}>THE NEXUS DOME</span>
-              <span style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.65rem', letterSpacing: '0.05em' }}>SYS_STATUS: ONLINE // CORE_v1.2</span>
-            </div>
+            <h2 style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1.6rem', marginBottom: '12px', fontWeight: 600 }}>
+              {successState.title}
+            </h2>
+            <p style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '1rem', lineHeight: '1.6', marginBottom: '32px' }}>
+              {successState.message}
+            </p>
+            <button className="saas-btn" onClick={resetToLogin} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              RETURN TO LOGIN <ArrowRight size={18} />
+            </button>
           </div>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Mode Switch Panel */}
-          {mode === 'register' && (
-            <div style={{ background: '#12161B', padding: '4px', borderRadius: '4px', display: 'flex', gap: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <button 
-                type="button" 
-                onClick={() => setRoleType('owner')} 
-                className="breaker-switch"
-                style={{ 
-                  flex: 1, padding: '8px', fontFamily: 'JetBrains Mono', fontSize: '0.7rem', letterSpacing: '0.05em',
-                  background: roleType === 'owner' ? '#C6813F' : 'transparent', 
-                  border: 0, color: '#EDEFF3', cursor: 'pointer', borderRadius: '3px', fontWeight: 600
-                }}
-              >
-                CONFIG_ROOT_OWNER
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setRoleType('member')} 
-                className="breaker-switch"
-                style={{ 
-                  flex: 1, padding: '8px', fontFamily: 'JetBrains Mono', fontSize: '0.7rem', letterSpacing: '0.05em',
-                  background: roleType === 'member' ? '#C6813F' : 'transparent', 
-                  border: 0, color: '#EDEFF3', cursor: 'pointer', borderRadius: '3px', fontWeight: 600
-                }}
-              >
-                REQUEST_NODE_LINK
-              </button>
-            </div>
-          )}
-
-          {/* Form Inputs Container */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <User size={12} style={{ color: '#C6813F' }} /> OPERATOR_ID
-              </label>
-              <input 
-                className="input-glow" 
-                value={username} 
-                onChange={(e) => setUsername(e.target.value)} 
-                required 
-                style={{ width: '100%', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', padding: '10px 12px', color: '#EDEFF3', fontFamily: 'JetBrains Mono', borderRadius: '4px', fontSize: '0.9rem', boxSizing: 'border-box' }} 
-              />
+        ) : (
+          /* Standard Form State */
+          <>
+            {/* Header Area */}
+            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px', background: 'rgba(198, 129, 63, 0.1)', padding: '8px 16px', borderRadius: '100px', border: '1px solid rgba(198, 129, 63, 0.2)' }}>
+                <Activity size={16} style={{ color: '#C6813F' }} />
+                <span style={{ fontFamily: 'JetBrains Mono', color: '#E0A868', fontSize: '0.8rem', letterSpacing: '0.1em', fontWeight: 700 }}>THE NEXUS DOME</span>
+              </div>
+              <h1 style={{ fontFamily: 'Manrope', color: '#EDEFF3', fontSize: '1.8rem', fontWeight: 600, margin: '0 0 8px 0' }}>
+                {mode === 'login' ? 'System Authentication' : 'Provision Architecture'}
+              </h1>
+              <p style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.95rem', margin: 0 }}>
+                {mode === 'login' ? 'Enter credentials to access your control panel.' : 'Initialize a new node or request a household link.'}
+              </p>
             </div>
 
-            {mode === 'register' && (
-              <>
-                <div>
-                  <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'block', marginBottom: '6px' }}>EMAIL_IDENTITY</label>
-                  <input 
-                    type="email" 
-                    className="input-glow" 
-                    value={email} 
-                    onChange={(e) => setEmail(e.target.value)} 
-                    required 
-                    style={{ width: '100%', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', padding: '10px 12px', color: '#EDEFF3', fontFamily: 'JetBrains Mono', borderRadius: '4px', fontSize: '0.9rem', boxSizing: 'border-box' }} 
-                  />
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Segmented Control for Registration Mode */}
+              {mode === 'register' && (
+                <div className="segment-control">
+                  <button 
+                    type="button" 
+                    onClick={() => setRoleType('owner')} 
+                    className="segment-btn"
+                    style={{ 
+                      background: roleType === 'owner' ? '#C6813F' : 'transparent', 
+                      color: roleType === 'owner' ? '#12161B' : '#8C95A3'
+                    }}
+                  >
+                    ROOT OWNER
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setRoleType('member')} 
+                    className="segment-btn"
+                    style={{ 
+                      background: roleType === 'member' ? '#C6813F' : 'transparent', 
+                      color: roleType === 'member' ? '#12161B' : '#8C95A3'
+                    }}
+                  >
+                    LINK MEMBER
+                  </button>
                 </div>
-                
-                {roleType === 'owner' ? (
-                  <div>
-                    <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <Home size={12} style={{ color: '#C6813F' }} /> CUSTOM_DOME_ALIAS
-                    </label>
-                    <input 
-                      className="input-glow" 
-                      value={householdName} 
-                      onChange={(e) => setHouseholdName(e.target.value)} 
-                      placeholder="e.g. Shanti Nivas" 
-                      required 
-                      style={{ width: '100%', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', padding: '10px 12px', color: '#EDEFF3', fontFamily: 'JetBrains Mono', borderRadius: '4px', fontSize: '0.9rem', boxSizing: 'border-box' }} 
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <ShieldCheck size={12} style={{ color: '#C6813F' }} /> TARGET_OWNER_ID
-                    </label>
-                    <input 
-                      className="input-glow" 
-                      value={targetOwnerUsername} 
-                      onChange={(e) => setTargetOwnerUsername(e.target.value)} 
-                      placeholder="Enter system owner's username" 
-                      required 
-                      style={{ width: '100%', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', padding: '10px 12px', color: '#EDEFF3', fontFamily: 'JetBrains Mono', borderRadius: '4px', fontSize: '0.9rem', boxSizing: 'border-box' }} 
-                    />
+              )}
+
+              {/* Input Group */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                    <User size={14} style={{ color: '#C6813F' }} /> OPERATOR ID
+                  </label>
+                  <input className="saas-input" value={username} onChange={(e) => setUsername(e.target.value)} required placeholder="Enter username..." />
+                </div>
+
+                {mode === 'register' && (
+                  <div style={{ animation: 'fadeUp 0.3s ease-out' }}>
+                    <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'block', marginBottom: '8px', letterSpacing: '0.05em' }}>EMAIL ADDRESS</label>
+                    <input type="email" className="saas-input" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@example.com" />
                   </div>
                 )}
-              </>
-            )}
+                
+                {mode === 'register' && roleType === 'owner' && (
+                  <div style={{ animation: 'fadeUp 0.3s ease-out' }}>
+                    <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                      <Home size={14} style={{ color: '#C6813F' }} /> DOME ALIAS
+                    </label>
+                    <input className="saas-input" value={householdName} onChange={(e) => setHouseholdName(e.target.value)} placeholder="e.g. Shanti Nivas" required />
+                  </div>
+                )}
 
-            <div>
-              <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <Lock size={12} style={{ color: '#C6813F' }} /> SECURE_ACCESS_KEY
-              </label>
-              <input 
-                type="password" 
-                className="input-glow" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                required 
-                style={{ width: '100%', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', padding: '10px 12px', color: '#EDEFF3', fontFamily: 'JetBrains Mono', borderRadius: '4px', fontSize: '0.9rem', boxSizing: 'border-box' }} 
-              />
+                {mode === 'register' && roleType === 'member' && (
+                  <div style={{ animation: 'fadeUp 0.3s ease-out' }}>
+                    <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                      <ShieldCheck size={14} style={{ color: '#C6813F' }} /> TARGET OWNER USERNAME
+                    </label>
+                    <input className="saas-input" value={targetOwnerUsername} onChange={(e) => setTargetOwnerUsername(e.target.value)} placeholder="Username of the household owner" required />
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                    <Lock size={14} style={{ color: '#C6813F' }} /> SECURE ACCESS KEY
+                  </label>
+                  <input type="password" className="saas-input" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" />
+                </div>
+              </div>
+
+              {/* Error Output */}
+              {error && (
+                <div style={{ background: 'rgba(225,85,84,0.1)', borderLeft: '3px solid #E15554', padding: '12px 16px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <ShieldAlert size={16} style={{ color: '#E15554', flexShrink: 0 }} />
+                  <p style={{ color: '#EDEFF3', fontFamily: 'Manrope', fontSize: '0.85rem', margin: 0, lineHeight: '1.4' }}>{error}</p>
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <button className="saas-btn" disabled={busy} style={{ marginTop: '8px' }}>
+                {busy ? 'SYNCHRONIZING...' : mode === 'login' ? 'INITIALIZE SESSION' : 'PROVISION PROFILE'}
+              </button>
+            </form>
+
+            {/* Footer Switcher */}
+            <div style={{ textAlign: 'center', marginTop: '32px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <p style={{ fontFamily: 'Manrope', color: '#8C95A3', fontSize: '0.9rem', margin: 0 }}>
+                {mode === 'login' ? "Deploying a new ecosystem?" : 'Hardware profile already verified?'}
+                <button 
+                  onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }} 
+                  style={{ background: 'none', border: 0, color: '#E0A868', fontFamily: 'Manrope', fontWeight: 600, cursor: 'pointer', marginLeft: '8px', padding: 0 }}
+                >
+                  {mode === 'login' ? "Register here." : 'Sign in here.'}
+                </button>
+              </p>
             </div>
-          </div>
-
-          {error && (
-            <div style={{ 
-              background: 'rgba(225,85,84,0.05)', border: '1px solid rgba(225,85,84,0.2)', 
-              padding: '10px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px' 
-            }}>
-              <ShieldAlert size={14} style={{ color: error.startsWith('SUCCESS') ? '#4CAF7D' : '#E15554', flexShrink: 0 }} />
-              <p style={{ color: error.startsWith('SUCCESS') ? '#4CAF7D' : '#E15554', fontFamily: 'JetBrains Mono', fontSize: '0.75rem', margin: 0, lineHeight: '1.2' }}>{error}</p>
-            </div>
-          )}
-
-          <button 
-            className="breaker-switch"
-            style={{ 
-              width: '100%', background: '#C6813F', border: 0, padding: '14px', 
-              color: '#EDEFF3', fontFamily: 'JetBrains Mono', cursor: 'pointer', 
-              borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold', letterSpacing: '0.05em',
-              boxShadow: '0 4px 12px rgba(198,129,63,0.2)', marginTop: '8px'
-            }} 
-            disabled={busy}
-          >
-            {busy ? 'SYNCHRONIZING_BUS...' : mode === 'login' ? 'INITIALIZE_SESSION' : 'COMMIT_SYSTEM_PROVISION'}
-          </button>
-        </form>
-
-        <button 
-          onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }} 
-          style={{ 
-            background: 'none', border: 0, color: '#8C95A3', width: '100%', 
-            marginTop: '20px', fontFamily: 'Manrope', cursor: 'pointer', 
-            fontSize: '0.8rem', textAlign: 'center', transition: 'color 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.color = '#E0A868'}
-          onMouseLeave={(e) => e.target.style.color = '#8C95A3'}
-        >
-          {mode === 'login' ? "Deploy new ecosystem architecture? Register" : 'Existing hardware profile key verified? Sign in'}
-        </button>
+          </>
+        )}
       </div>
     </div>
   );
