@@ -72,3 +72,12 @@ class AlertConsumer(AsyncWebsocketConsumer):
         payload = dict(event['message'])
         payload['kind'] = 'garage_status'
         await self.send(text_data=json.dumps(payload))
+
+    async def door_status_update(self, event):
+        # Same idea as garage_status_update, but for the front door lock —
+        # pushed once acknowledge_command() confirms the ESP32 actually
+        # locked/unlocked it, so the Security page reflects real state
+        # instead of an optimistic guess that could be wrong.
+        payload = dict(event['message'])
+        payload['kind'] = 'door_status'
+        await self.send(text_data=json.dumps(payload))

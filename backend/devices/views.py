@@ -67,6 +67,12 @@ def pending_commands(request):
 # Command actions that resolve a garage "awaiting confirmation" state either way
 GARAGE_RESOLVING_ACTIONS = {'garage_open', 'garage_deny', 'open_gate', 'deny_gate', 'close_gate'}
 
+# Command actions that set the front door's lock state once the ESP32 has
+# actually carried them out. Previously nothing wrote to door_status at all —
+# the field existed on the model/serializer but was permanently stuck on its
+# 'locked' default no matter what the dashboard did.
+DOOR_LOCK_ACTIONS = {'lock_door': 'locked', 'unlock_door': 'unlocked'}
+
 
 @api_view(['POST'])
 def acknowledge_command(request):
@@ -85,13 +91,14 @@ def acknowledge_command(request):
     command.acknowledged_at = timezone.now()
     command.save()
 
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+    channel_layer = get_channel_layer()
+
     if command.action in GARAGE_RESOLVING_ACTIONS and command.device.garage_status in ('pending', 'opening'):
         command.device.garage_status = 'vacant'
         command.device.save(update_fields=['garage_status'])
 
-        from asgiref.sync import async_to_sync
-        from channels.layers import get_channel_layer
-        channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f"alerts_{command.device.household_id}",
             {
@@ -99,6 +106,22 @@ def acknowledge_command(request):
                 "message": {
                     "device_id": command.device.id,
                     "garage_status": command.device.garage_status,
+                },
+            },
+        )
+
+    if command.action in DOOR_LOCK_ACTIONS:
+        new_status = DOOR_LOCK_ACTIONS[command.action]
+        command.device.door_status = new_status
+        command.device.save(update_fields=['door_status'])
+
+        async_to_sync(channel_layer.group_send)(
+            f"alerts_{command.device.household_id}",
+            {
+                "type": "door_status_update",
+                "message": {
+                    "device_id": command.device.id,
+                    "door_status": new_status,
                 },
             },
         )

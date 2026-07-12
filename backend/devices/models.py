@@ -30,6 +30,15 @@ class Device(models.Model):
         ],
         default='vacant',
     )
+    # Separate from garage_status: garage_status tracks the car-detected /
+    # confirmation-prompt workflow. gate_status tracks the physical servo
+    # gate position, which can also be changed by a manual Open/Close
+    # button regardless of whether a car was ever detected.
+    gate_status = models.CharField(
+        max_length=10,
+        choices=[('open', 'Open'), ('closed', 'Closed')],
+        default='closed',
+    )
     door_status = models.CharField(
         max_length=10,
         choices=[('locked', 'Locked'), ('unlocked', 'Unlocked')],

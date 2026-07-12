@@ -73,7 +73,10 @@ def verify_access(request):
                                       message=f"Access denied for unrecognized card {uid}")
     async_to_sync(channel_layer.group_send)(
         f"alerts_{device.household_id}",
-        {"type": "alert_update", "data": {
+        {"type": "alert_update", "message": {
+            # FIX: AlertConsumer.alert_update reads event['message'], but this
+            # was sending event['data'] — every RFID scan (granted or denied)
+            # was silently crashing the WebSocket broadcast with a KeyError.
             "id": alert.id if alert else None, "device_id": device.id,
             "type": "rfid_result", "granted": granted, "rfid_uid": uid,
             "message": alert.message if alert else f"Access granted to {uid}",
