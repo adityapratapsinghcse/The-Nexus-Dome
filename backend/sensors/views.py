@@ -126,6 +126,26 @@ def ingest_sensor_data(request):
     if data.get('flame_detected'):
         broadcast_and_push_alert(device, 'fire', "Critical flame signature detected!", severity='critical')
 
+    GAS_WARNING_PERCENT = 30
+    GAS_CRITICAL_PERCENT = 60
+
+    gas_percent = data.get('gas_percent')
+    if gas_percent is not None:
+        if gas_percent >= GAS_CRITICAL_PERCENT:
+            if not _recent_alert_exists(device, 'gas_leak'):
+                broadcast_and_push_alert(
+                    device, 'gas_leak',
+                    f"Dangerous gas level detected ({gas_percent:.0f}%). Ventilate immediately!",
+                    severity='critical',
+                )
+        elif gas_percent >= GAS_WARNING_PERCENT:
+            if not _recent_alert_exists(device, 'gas_leak'):
+                broadcast_and_push_alert(
+                    device, 'gas_leak',
+                    f"Elevated gas level detected ({gas_percent:.0f}%).",
+                    severity='warning',
+                )
+            
     # Water tank level alerts (dormant until a dedicated tank sensor exists)
     if water_level_percent is not None:
         if water_level_percent <= TANK_CRITICAL_PERCENT:
