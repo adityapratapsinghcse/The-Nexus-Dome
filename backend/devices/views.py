@@ -10,6 +10,8 @@ from collections import defaultdict
 from datetime import timedelta
 from django.utils import timezone
 from sensors.models import SensorReading
+from .models import RFIDCard
+from .serializers import RFIDCardSerializer
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -161,3 +163,40 @@ def register_push_token(request):
     from accounts.models import Membership
     Membership.objects.filter(user=request.user).update(fcm_token=fcm_token)
     return Response({"status": "registered"})
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def rfid_card_list_create(request):
+    user_households = request.user.memberships.values_list('household_id', flat=True)
+    if request.method == 'GET':
+        cards = RFIDCard.objects.filter(household_id__in=user_households)
+        return Response(RFIDCardSerializer(cards, many=True).data)
+
+    if request.data.get('household') not in user_households:
+        return Response({"error": "Not your household"}, status=403)
+    serializer = RFIDCardSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=201)
+    return Response(serializer.errors, status=400)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def rfid_card_detail(request, card_id):
+    user_households = request.user.memberships.values_list('household_id', flat=True)
+    try:
+        card = RFIDCard.objects.get(id=card_id, household_id__in=user_households)
+    except RFIDCard.DoesNotExist:
+        return Response({"error": "Not found"}, status=404)
+
+    if request.method == 'DELETE':
+        card.delete()
+        return Response(status=204)
+
+    serializer = RFIDCardSerializer(card, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=400)

@@ -51,53 +51,38 @@ def mark_alert_read(request):
 @permission_classes([AllowAny])
 def verify_access(request):
     """
-    POST /api/access/verify/
-    Header required: X-Device-Key: <device's secret key>
-    Body: {"rfid_uid": "A1B2C3D4", "method": "rfid", "granted": true}
+    POST /api/access/verify/   Header: X-Device-Key
+    Body: {"rfid_uid": "A1B2C3D4"}
+    ESP32 sends the raw UID it just scanned — backend looks it up and
+    returns the decision. ESP32 only opens the servo if granted=true.
     """
     device = request.auth
     if device is None:
         return Response({"error": "Missing or invalid X-Device-Key header"}, status=401)
 
-    data = request.data.copy()
-    log = AccessLog.objects.create(
-        device=device,
-        rfid_uid=data.get('rfid_uid', ''),
-        method=data.get('method', 'rfid'),
-        granted=data.get('granted', False),
-    )
+    uid = request.data.get('rfid_uid', '').upper()
+    from devices.models import RFIDCard
+    granted = RFIDCard.objects.filter(household=device.household, uid=uid, is_active=True).exists()
+
+    log = AccessLog.objects.create(device=device, rfid_uid=uid, method='rfid', granted=granted)
 
     channel_layer = get_channel_layer()
+    alert = None
+    if not granted:
+        alert = Alert.objects.create(device=device, type='rfid_denied', severity='warning',
+                                      message=f"Access denied for unrecognized card {uid}")
+    async_to_sync(channel_layer.group_send)(
+        f"alerts_{device.household_id}",
+        {"type": "alert_update", "data": {
+            "id": alert.id if alert else None, "device_id": device.id,
+            "type": "rfid_result", "granted": granted, "rfid_uid": uid,
+            "message": alert.message if alert else f"Access granted to {uid}",
+        }}
+    )
+    if not granted:
+        send_alert_push(device.household_id, "Access Denied", f"Failed access attempt: UID {uid}")
 
-    if not log.granted:
-        alert = Alert.objects.create(
-            device=device,
-            type='rfid_denied',
-            severity='warning',
-            message=f"Access denied for UID {log.rfid_uid}"
-        )
-        async_to_sync(channel_layer.group_send)(
-            f"alerts_{device.household_id}",
-            {
-                "type": "alert_update",
-                "data": {
-                    "id": alert.id,
-                    "device_id": device.id,
-                    "type": alert.type,
-                    "severity": alert.severity,
-                    "message": alert.message,
-                }
-            }
-        )
-        # inside verify_access, right after the async_to_sync(channel_layer.group_send)(...) call:
-        send_alert_push(
-            device.household_id,
-            title="Access Denied",
-            body=f"Failed access attempt: UID {log.rfid_uid}"
-        )
-
-
-    return Response(AccessLogSerializer(log).data, status=201)
+    return Response({**AccessLogSerializer(log).data, "granted": granted}, status=201)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

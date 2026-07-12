@@ -65,3 +65,15 @@ class EnergyLog(models.Model):
     def __str__(self):
         return f"{self.device.name} - {self.date}: {self.estimated_kwh} kWh"
     
+class RFIDCard(models.Model):
+    household = models.ForeignKey('accounts.Household', on_delete=models.CASCADE, related_name='rfid_cards')
+    uid = models.CharField(max_length=50)
+    label = models.CharField(max_length=100, blank=True)  # e.g. "Aditya's card"
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('household', 'uid')
+
+    def __str__(self):
+        return f"{self.label or self.uid} ({'active' if self.is_active else 'revoked'})"
