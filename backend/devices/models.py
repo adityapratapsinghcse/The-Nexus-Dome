@@ -20,6 +20,16 @@ class Device(models.Model):
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    garage_status = models.CharField(
+        max_length=10,
+        choices=[('vacant', 'Vacant'), ('occupied', 'Occupied'), ('pending', 'Awaiting Confirmation')],
+        default='vacant',
+    )
+    door_status = models.CharField(
+        max_length=10,
+        choices=[('locked', 'Locked'), ('unlocked', 'Unlocked')],
+        default='locked',
+    )
 
     def __str__(self):
         return f"{self.name} ({self.household.name})"
@@ -54,3 +64,4 @@ class EnergyLog(models.Model):
 
     def __str__(self):
         return f"{self.device.name} - {self.date}: {self.estimated_kwh} kWh"
+    

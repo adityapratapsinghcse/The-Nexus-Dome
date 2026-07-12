@@ -143,12 +143,29 @@ def ingest_sensor_data(request):
                     severity='warning',
                 )
 
-    # Garage Gate Edge Detection (Car Presence)
+   # Garage: car detected → don't auto-open, ask the user first
     if data.get('car_detected'):
-        if not _recent_alert_exists(device, 'car_detected', minutes=2):
-            broadcast_and_push_alert(device, 'car_detected', "Vehicle detected approaching the garage gate.", severity='warning')
-
-    return Response({"status": "success", "message": "Data processed successfully"}, status=status.HTTP_200_OK)
+        if device.garage_status != 'pending' and not _recent_alert_exists(device, 'car_detected', minutes=2):
+            device.garage_status = 'pending'
+            device.save(update_fields=['garage_status'])
+            alert = broadcast_and_push_alert(
+                device, 'car_detected',
+                "A vehicle was detected at the garage. Open the gate?",
+                severity='warning',
+            )
+            # Extra WebSocket event specifically for the confirm/deny modal
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"alerts_{device.household_id}",
+                {
+                    "type": "garage_prompt",
+                    "message": {
+                        "device_id": device.id,
+                        "alert_id": alert.id,
+                        "text": "Vehicle detected at the garage gate. Open it?",
+                    },
+                },
+            )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
