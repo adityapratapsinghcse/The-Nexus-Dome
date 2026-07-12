@@ -63,3 +63,12 @@ class AlertConsumer(AsyncWebsocketConsumer):
         payload = dict(event['message'])
         payload['kind'] = 'garage_prompt'
         await self.send(text_data=json.dumps(payload))
+
+    async def garage_status_update(self, event):
+        # Pushes garage_status changes that happen server-side after the
+        # initial prompt (e.g. the ESP32 acking the open/deny command and
+        # the status resetting to 'vacant') so the Security page updates
+        # live instead of only on next page load.
+        payload = dict(event['message'])
+        payload['kind'] = 'garage_status'
+        await self.send(text_data=json.dumps(payload))

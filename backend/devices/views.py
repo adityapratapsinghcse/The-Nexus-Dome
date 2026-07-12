@@ -89,6 +89,20 @@ def acknowledge_command(request):
         command.device.garage_status = 'vacant'
         command.device.save(update_fields=['garage_status'])
 
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"alerts_{command.device.household_id}",
+            {
+                "type": "garage_status_update",
+                "message": {
+                    "device_id": command.device.id,
+                    "garage_status": command.device.garage_status,
+                },
+            },
+        )
+
     return Response(CommandSerializer(command).data)
 
 
