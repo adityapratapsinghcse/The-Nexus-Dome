@@ -231,38 +231,15 @@ export default function Security() {
           display: flex; justify-content: space-between; align-items: flex-start;
           margin-bottom: 20px; gap: 12px; flex-wrap: wrap;
         }
-        .sn-security-controls { display: flex; flex-direction: column; gap: 20px; }
-        .sn-security-control-block { padding-bottom: 4px; }
-        .sn-security-control-block + .sn-security-control-block {
-          padding-top: 18px; border-top: 1px solid var(--border-subtle);
-        }
-        .sn-security-control-title { font-weight: 700; font-size: 14.5px; }
-        .sn-security-control-sub { font-size: 12px; color: var(--text-secondary); margin-top: 1px; margin-bottom: 12px; }
-        .sn-btn-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
-        .sn-btn-solid, .sn-btn-outline {
-          display: inline-flex; align-items: center; gap: 7px;
-          font-family: var(--font-mono); font-size: 12.5px; font-weight: 700;
-          letter-spacing: 0.02em; border-radius: 8px; padding: 10px 16px;
-          cursor: pointer; transition: filter 0.2s ease, border-color 0.2s ease;
-          flex: 1; justify-content: center; min-width: 130px;
-        }
-        .sn-btn-solid { background: var(--status-safe); color: #0d130f; border: none; }
-        .sn-btn-solid.critical { background: var(--status-critical); color: #fff; }
-        .sn-btn-solid:hover:not(:disabled) { filter: brightness(1.08); }
-        .sn-btn-solid:disabled { opacity: 0.55; cursor: not-allowed; }
-        .sn-btn-outline {
-          background: var(--bg-panel-raised); color: var(--text-primary);
-          border: 1px solid var(--border-subtle);
-        }
-        .sn-btn-outline:hover:not(:disabled) { border-color: rgba(255,255,255,0.25); }
-        .sn-btn-outline:disabled { opacity: 0.55; cursor: not-allowed; }
-        .sn-distance-readout {
-          display: flex; align-items: center; justify-content: space-between;
-          background: var(--bg-deep); border: 1px solid var(--border-subtle);
-          border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; font-size: 13px;
-        }
-        .sn-distance-readout b { font-family: var(--font-mono); color: var(--text-primary); }
       `}</style>
+
+      {/* NOTE: .sn-security-controls, .sn-security-control-*, .sn-btn-row,
+          .sn-btn-solid/.sn-btn-outline, and .sn-distance-readout used to be
+          defined right here, scoped to this page only via this <style> tag.
+          Since React removes the tag when you navigate away, every other
+          page that reused those same class names (Safety's Emergency
+          Cutoff/Test Siren buttons, the Notifications page) rendered
+          unstyled. They're now permanent global rules in index.css instead. */}
 
       <div className="security-page-header">
         <div>

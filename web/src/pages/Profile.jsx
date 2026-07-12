@@ -114,7 +114,7 @@ export default function Profile() {
     .slice(0, 6);
 
   return (
-    <div className="sn-page">
+    <div className="sn-page profile-page">
       <div className="sn-page-header">
         <div>
           <h1 className="sn-page-title">My Profile</h1>
@@ -133,7 +133,7 @@ export default function Profile() {
       )}
 
       {/* Identity banner */}
-      <div className="ui-panel ui-panel-accent" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div className="ui-panel ui-panel-accent profile-identity-banner">
         <div style={{
           width: 64, height: 64, borderRadius: '50%',
           background: 'linear-gradient(135deg, var(--accent-copper-bright) 0%, var(--accent-copper) 100%)',
@@ -243,11 +243,11 @@ export default function Profile() {
 
         {/* Sign out */}
         <PanelCard title="Sign Out" icon={LogOut} className="sn-chart-panel" style={{ gridColumn: 'span 4' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+          <div className="profile-signout-row">
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0, maxWidth: 480 }}>
               Signing out will log you out of this device. You can always sign back in with your username and password.
             </p>
-            <button onClick={logout} className="sn-unlock-btn" style={{ background: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8, width: 'auto', padding: '10px 22px' }}>
+            <button onClick={logout} className="sn-unlock-btn" style={{ background: 'var(--status-critical)', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 22px' }}>
               <LogOut size={16} /> Sign Out
             </button>
           </div>

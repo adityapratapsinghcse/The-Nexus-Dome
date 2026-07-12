@@ -40,6 +40,17 @@ def send_alert_push(household_id, title, body):
         tokens=tokens,
     )
     try:
-        messaging.send_multicast(message)
+        # FIX: messaging.send_multicast was removed from the firebase-admin
+        # Python SDK in v6.2+ (requirements.txt pins >=6.5, so Railway always
+        # installs a version without it). Calling it raised AttributeError
+        # on every single push, every time — silently swallowed by the
+        # except block below, so FCM never actually delivered anything even
+        # with valid credentials and valid tokens. send_each_for_multicast
+        # is the current replacement with the same MulticastMessage input.
+        response = messaging.send_each_for_multicast(message)
+        if response.failure_count:
+            for idx, resp in enumerate(response.responses):
+                if not resp.success:
+                    print(f"⚠️ Push failed for token …{tokens[idx][-8:]}: {resp.exception}")
     except Exception as e:
         print(f"⚠️ Push send failed: {e}")

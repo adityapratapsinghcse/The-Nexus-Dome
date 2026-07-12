@@ -5,6 +5,13 @@ from rest_framework.response import Response
 from .serializers import RegisterSerializer, HouseholdSerializer, MembershipSerializer
 from .models import Household, Membership
 from django.contrib.auth import authenticate
+# FIX: register_split(), search_users(), and handle_join_request() all use
+# User and/or transaction.atomic() below, but neither was ever imported at
+# module level — every call to /api/auth/register-split/ and
+# /api/auth/search-users/ raised NameError (500) unconditionally. Confirmed
+# with `python -m pyflakes accounts/views.py` before this fix.
+from django.contrib.auth.models import User
+from django.db import transaction
 
 
 
