@@ -13,4 +13,5 @@ urlpatterns = [
     path('devices/test-push/', views.test_push, name='test-push'),
     path('access/cards/', views.rfid_card_list_create, name='rfid-card-list-create'),
     path('access/cards/<int:card_id>/', views.rfid_card_detail, name='rfid-card-detail'),
+    path('commands/door/relocked/', views.report_door_relocked, name='report-door-relocked'),
 ]

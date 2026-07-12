@@ -41,6 +41,34 @@ def device_list_create(request):
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
+def report_door_relocked(request):
+    """
+    POST /api/commands/door/relocked/   Header: X-Device-Key
+    ESP32 calls this right after it physically re-locks the door servo
+    following a momentary RFID-granted unlock.
+    """
+    device_key = request.headers.get('X-Device-Key')
+    if not device_key:
+        return Response({"error": "Device key missing"}, status=401)
+    try:
+        device = Device.objects.get(device_key=device_key)
+    except Device.DoesNotExist:
+        return Response({"error": "Invalid device key"}, status=401)
+
+    device.door_status = 'locked'
+    device.save(update_fields=['door_status'])
+
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"alerts_{device.household_id}",
+        {"type": "door_status_update", "message": {"device_id": device.id, "door_status": "locked"}},
+    )
+    return Response({"status": "ok", "door_status": "locked"})
+
+@api_view(['POST'])
 def send_command(request):
     """
     POST /api/commands/send/

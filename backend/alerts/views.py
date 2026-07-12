@@ -67,6 +67,14 @@ def verify_access(request):
     log = AccessLog.objects.create(device=device, rfid_uid=uid, method='rfid', granted=granted)
 
     channel_layer = get_channel_layer()
+
+    if granted:
+        device.door_status = 'unlocked'
+        device.save(update_fields=['door_status'])
+        async_to_sync(channel_layer.group_send)(
+            f"alerts_{device.household_id}",
+            {"type": "door_status_update", "message": {"device_id": device.id, "door_status": "unlocked"}},
+        )
     alert = None
     if not granted:
         alert = Alert.objects.create(device=device, type='rfid_denied', severity='warning',
