@@ -145,7 +145,23 @@ def ingest_sensor_data(request):
 
     # Garage: car detected -> don't auto-open, ask the user first
     if data.get('car_detected'):
-        if device.garage_status != 'pending' and not _recent_alert_exists(device, 'car_detected', minutes=2):
+        # FIX: garage_status only ever left 'pending' via garage_confirm().
+        # If that confirm step never happened (ESP32 test run cut short, a
+        # Postman test that skipped the confirm call, etc.) garage_status
+        # stayed stuck on 'pending' forever, and this whole block was
+        # permanently skipped — the popup would never fire again for that
+        # device, with no error anywhere to explain why. Treat a 'pending'
+        # that's older than 5 minutes as abandoned and let it re-trigger.
+        stale_pending = False
+        if device.garage_status == 'pending':
+            last_prompt = Alert.objects.filter(device=device, type='car_detected').order_by('-timestamp').first()
+            if last_prompt:
+                import datetime
+                stale_pending = (timezone.now() - last_prompt.timestamp) > datetime.timedelta(minutes=5)
+            else:
+                stale_pending = True  # pending with no matching alert at all shouldn't be possible; don't get stuck on it
+
+        if (device.garage_status != 'pending' or stale_pending) and not _recent_alert_exists(device, 'car_detected', minutes=2):
             device.garage_status = 'pending'
             device.save(update_fields=['garage_status'])
             alert = broadcast_and_push_alert(

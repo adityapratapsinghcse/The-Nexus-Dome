@@ -206,6 +206,21 @@ def register_push_token(request):
     return Response({"status": "registered"})
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def test_push(request):
+    """
+    POST /api/devices/test-push/
+    Sends one real FCM push to the logged-in user's registered device and
+    reports back exactly which stage of the pipeline (token stored ->
+    Firebase credentials valid -> Firebase accepted the send) succeeded or
+    failed, instead of the silent skip-and-print real alerts use.
+    """
+    from alerts.push import send_test_push
+    result = send_test_push(request.user)
+    return Response(result, status=200 if result["ok"] else 400)
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def rfid_card_list_create(request):
@@ -271,5 +286,26 @@ def garage_confirm(request):
     # to 'vacant' once the ESP32 actually reports the action was carried out.
     device.garage_status = 'opening' if confirm else 'vacant'
     device.save(update_fields=['garage_status'])
+
+    # FIX: this used to only return the new status in the HTTP response, so
+    # only the browser tab/device that actually tapped "Yes/No" ever saw the
+    # status change. Any other open tab, device, or a Postman test watching
+    # a second tab never got told — it looked like "status doesn't update"
+    # even though the DB was correct. Broadcast it the same way
+    # acknowledge_command() already does for the vacant/locked transitions,
+    # so every connected client updates live.
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"alerts_{device.household_id}",
+        {
+            "type": "garage_status_update",
+            "message": {
+                "device_id": device.id,
+                "garage_status": device.garage_status,
+            },
+        },
+    )
 
     return Response({"garage_status": device.garage_status})

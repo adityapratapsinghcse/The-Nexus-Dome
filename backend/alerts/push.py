@@ -13,6 +13,49 @@ def get_firebase_app():
         _firebase_app = firebase_admin.initialize_app(cred)
     return _firebase_app
 
+def send_test_push(user):
+    """
+    Diagnostic version of send_alert_push for a single user, used by
+    /api/devices/test-push/. Returns a dict describing exactly which stage
+    failed instead of silently swallowing everything, so "is FCM working"
+    can be answered from one API call instead of guessing.
+    """
+    from accounts.models import Membership
+
+    membership = Membership.objects.filter(user=user).exclude(fcm_token__isnull=True).exclude(fcm_token='').first()
+    if not membership:
+        return {
+            "ok": False,
+            "stage": "token",
+            "detail": "No fcm_token stored for this user yet. Open the Android app and log in/reopen it "
+                       "so setupPushNotifications.js can register — check Logcat for "
+                       "'Push token registered with backend' or 'Push registration error'.",
+        }
+
+    try:
+        get_firebase_app()
+    except Exception as e:
+        return {
+            "ok": False,
+            "stage": "credentials",
+            "detail": f"FIREBASE_CREDENTIALS_JSON is missing or invalid on the server: {e}",
+        }
+
+    message = messaging.Message(
+        notification=messaging.Notification(title="SmartNest test", body="If you see this, FCM is working end to end."),
+        token=membership.fcm_token,
+    )
+    try:
+        message_id = messaging.send(message)
+        return {"ok": True, "stage": "sent", "detail": f"Sent, message id: {message_id}"}
+    except Exception as e:
+        return {
+            "ok": False,
+            "stage": "send",
+            "detail": f"Firebase rejected the send (often a stale/uninstalled-app token): {e}",
+        }
+
+
 def send_alert_push(household_id, title, body):
     """
     Sends a push notification to every member of a household who has

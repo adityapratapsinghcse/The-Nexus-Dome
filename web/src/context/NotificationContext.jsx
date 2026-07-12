@@ -13,13 +13,36 @@ export const NotificationProvider = ({ children }) => {
   // householdId directly, and by reusing the same useWebSocket hook every
   // other page already uses (it sends the required ?token= auth param that
   // this custom socket was also missing).
-  const { householdId } = useAuth();
+  const { householdId, householdName } = useAuth();
   const [alerts, setAlerts] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [toasts, setToasts] = useState([]);
 
   const { lastMessage } = useWebSocket('/ws/alerts/', householdId);
   const seenIds = useRef(new Set());
+  const baseTitle = useRef(document.title);
+
+  // FIX: nothing in this file (or anywhere else in the codebase — grepped
+  // for `new Notification` / `Notification.requestPermission`, zero hits)
+  // ever asked for browser notification permission or called the Web
+  // Notifications API. Toasts only rendered inside <ToastContainer/>, which
+  // is only visible while this exact browser tab is focused, so any alert
+  // that arrived while the user was on a different tab, a different app, or
+  // had the window minimized was invisible - "notifications aren't showing
+  // up" on web. This asks once per browser and fires a real OS-level popup.
+  useEffect(() => {
+    if (!householdId) return;
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [householdId]);
+
+  // Badge the tab title so an unread count is visible even without
+  // switching back to this tab or granting OS notification permission.
+  useEffect(() => {
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${baseTitle.current}` : baseTitle.current;
+  }, [unreadCount]);
 
   const addToast = (message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -51,6 +74,21 @@ export const NotificationProvider = ({ children }) => {
     setAlerts((prev) => [newAlert, ...prev].slice(0, 30));
     setUnreadCount((prev) => prev + 1);
     addToast(newAlert.message, newAlert.severity === 'critical' || newAlert.severity === 'high' ? 'danger' : 'warning');
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        new Notification(householdName ? `SmartNest - ${householdName}` : 'SmartNest', {
+          body: newAlert.message,
+          icon: '/icon-192.png',
+          tag: newAlert.id != null ? String(newAlert.id) : undefined, // dedupes if the same alert re-broadcasts
+        });
+      } catch {
+        // Notification constructor can throw on some mobile browsers even
+        // when permission is 'granted' (e.g. Android Chrome wants the
+        // Service Worker Notifications API instead) - never let that break
+        // the in-app toast/alert list above.
+      }
+    }
   }, [lastMessage]);
 
   const clearUnread = () => setUnreadCount(0);

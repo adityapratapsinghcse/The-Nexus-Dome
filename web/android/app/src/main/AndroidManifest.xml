@@ -38,4 +38,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Required on Android 13+ (API 33+, this app targets 36). Without this,
+         PushNotifications.requestPermissions() in setupPushNotifications.js
+         never shows the system permission dialog at all, so the user can
+         never grant it — FCM registration can still "succeed" and return a
+         token, but no notification will ever actually display. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
