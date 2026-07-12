@@ -1,13 +1,19 @@
-import { User, Home, ShieldCheck, LogOut, Wifi, Users } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  User, Home, ShieldCheck, LogOut, Wifi, WifiOff, Users, Cpu,
+  CreditCard, Clock, Activity, ShieldAlert, DoorOpen,
+} from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
 import StatusPill from '../components/ui/StatusPill';
+import client from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
+const OFFLINE_THRESHOLD_MS = 60 * 1000;
+
 export default function Profile() {
-  const { householdName, logout } = useAuth();
+  const { householdId, householdName, logout } = useAuth();
   const username = localStorage.getItem('smartnest_username') || 'Family Member';
 
-  // Turn a username like "aditya_singh" into "Aditya Singh" for a friendlier greeting
   const displayName = username
     .replace(/[._]/g, ' ')
     .split(' ')
@@ -22,9 +28,93 @@ export default function Profile() {
     .join('')
     .toUpperCase();
 
+  const [loading, setLoading] = useState(true);
+  const [membership, setMembership] = useState(null); // { role, joined_at, is_active }
+  const [devices, setDevices] = useState([]);
+  const [rfidCards, setRfidCards] = useState([]);
+  const [accessLog, setAccessLog] = useState([]);
+  const [recentAlerts, setRecentAlerts] = useState([]);
+  const [now, setNow] = useState(Date.now());
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    if (!householdId) { setLoading(false); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const [membersRes, devicesRes, cardsRes] = await Promise.all([
+        client.get(`/api/auth/household-members/?household_id=${householdId}`),
+        client.get('/api/devices/'),
+        client.get('/api/access/cards/'),
+      ]);
+
+      const self = membersRes.data.find((m) => m.username === username);
+      setMembership(self || null);
+      setDevices(devicesRes.data);
+      setRfidCards(cardsRes.data);
+
+      // Access log and alerts depend on having a primary device
+      if (devicesRes.data.length > 0) {
+        const primaryDevice = devicesRes.data[0];
+        const [accessRes, alertsRes] = await Promise.all([
+          client.get(`/api/access/log/?device_id=${primaryDevice.id}`).catch(() => ({ data: [] })),
+          client.get('/api/alerts/?is_read=false').catch(() => ({ data: [] })),
+        ]);
+        setAccessLog(accessRes.data.slice(0, 5));
+        setRecentAlerts(alertsRes.data.slice(0, 5));
+      }
+    } catch (err) {
+      console.error('Failed to load profile data:', err);
+      setError('Could not load some profile data. Household membership info may be incomplete.');
+    } finally {
+      setLoading(false);
+    }
+  }, [householdId, username]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  if (loading) return <div className="sn-page-loading">Loading profile…</div>;
+
+  const primaryDevice = devices[0] || null;
+  const deviceOnline = primaryDevice?.last_seen
+    && (now - new Date(primaryDevice.last_seen).getTime()) < OFFLINE_THRESHOLD_MS;
+
+  const roleLabel = membership?.role
+    ? membership.role.charAt(0).toUpperCase() + membership.role.slice(1)
+    : 'Unknown — could not confirm from household-members';
+
+  const joinedLabel = membership?.joined_at
+    ? new Date(membership.joined_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    : '--';
+
+  // Merge access log + alerts into one feed, newest first
+  const activityItems = [
+    ...accessLog.map((a) => ({
+      kind: 'access',
+      key: `access-${a.id}`,
+      timestamp: a.timestamp,
+      granted: a.granted,
+      label: a.granted ? 'Access granted at Main Gate' : 'Access denied at Main Gate',
+    })),
+    ...recentAlerts.map((a) => ({
+      kind: 'alert',
+      key: `alert-${a.id}`,
+      timestamp: a.timestamp || a.created_at,
+      severity: a.severity,
+      label: a.message,
+    })),
+  ]
+    .filter((i) => i.timestamp)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, 6);
+
   return (
     <div className="sn-page">
-      {/* Page Header */}
       <div className="sn-page-header">
         <div>
           <h1 className="sn-page-title">My Profile</h1>
@@ -32,7 +122,17 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Friendly identity banner */}
+      {error && (
+        <div style={{
+          background: 'rgba(232,163,61,0.1)', border: '1px solid rgba(232,163,61,0.3)',
+          borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--status-warning)',
+          marginBottom: 16,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Identity banner */}
       <div className="ui-panel ui-panel-accent" style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{
           width: 64, height: 64, borderRadius: '50%',
@@ -48,7 +148,10 @@ export default function Profile() {
             Member of {householdName || 'your home'}
           </div>
         </div>
-        <StatusPill status="safe" text="ACCOUNT ACTIVE" />
+        <StatusPill
+          status={membership?.is_active === false ? 'warning' : 'safe'}
+          text={membership?.is_active === false ? 'PENDING APPROVAL' : 'ACCOUNT ACTIVE'}
+        />
       </div>
 
       <div className="sn-grid sn-grid-4">
@@ -61,12 +164,16 @@ export default function Profile() {
             </div>
             <div>
               <span className="label-eyebrow">Role in the Home</span>
-              <div style={{ fontSize: 15, color: 'var(--text-primary)', marginTop: 4 }}>Family Member</div>
+              <div style={{ fontSize: 15, color: 'var(--text-primary)', marginTop: 4 }}>{roleLabel}</div>
+            </div>
+            <div>
+              <span className="label-eyebrow">Member Since</span>
+              <div style={{ fontSize: 15, color: 'var(--text-primary)', marginTop: 4 }}>{joinedLabel}</div>
             </div>
           </div>
         </PanelCard>
 
-        {/* Household details */}
+        {/* Household + connectivity */}
         <PanelCard title="Your Home" icon={Home} className="sn-chart-panel" style={{ gridColumn: 'span 2' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
@@ -76,21 +183,60 @@ export default function Profile() {
               </div>
             </div>
             <div className="sn-security-item" style={{ marginTop: 2 }}>
-              <Wifi size={16} className="sn-security-icon" />
-              <span>Smart Devices</span>
-              <StatusPill status="safe" text="CONNECTED" />
+              <Cpu size={16} className="sn-security-icon" />
+              <span>{primaryDevice ? primaryDevice.name : 'No board registered'}</span>
+              {primaryDevice ? (
+                <StatusPill status={deviceOnline ? 'safe' : 'critical'} text={deviceOnline ? 'ONLINE' : 'OFFLINE'} />
+              ) : (
+                <StatusPill status="warning" text="NONE" />
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              {devices.length} board{devices.length !== 1 ? 's' : ''} registered to this home
             </div>
           </div>
         </PanelCard>
 
-        {/* Simple explainer card so a non-technical reader understands what's happening */}
+        {/* RFID access — household-wide, not per-user (no user link on the card model) */}
+        <PanelCard title="Household Access Cards" icon={CreditCard} className="sn-chart-panel" style={{ gridColumn: 'span 2' }}>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 0, marginBottom: 12 }}>
+            RFID cards aren't tied to individual accounts yet — this is every card enrolled on the household's reader.
+          </p>
+          {rfidCards.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No cards enrolled yet.</p>
+          )}
+          {rfidCards.map((c) => (
+            <div key={c.id} className="sn-access-item">
+              <CreditCard size={16} className={c.is_active ? 'sn-access-icon-ok' : 'sn-access-icon-fail'} />
+              <div className="sn-access-details">
+                <span className="sn-access-uid">{c.label || c.uid}</span>
+                <span className="sn-access-time">{c.is_active ? 'Active' : 'Revoked'}</span>
+              </div>
+            </div>
+          ))}
+        </PanelCard>
+
+        {/* Last gate access */}
+        <PanelCard title="Last Gate Access" icon={DoorOpen} className="sn-chart-panel" style={{ gridColumn: 'span 2' }}>
+          {accessLog.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No access events recorded yet.</p>
+          )}
+          {accessLog.slice(0, 1).map((a) => (
+            <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <StatusPill status={a.granted ? 'safe' : 'critical'} text={a.granted ? 'ACCESS GRANTED' : 'ACCESS DENIED'} />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                {new Date(a.timestamp).toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </PanelCard>
+        {/* Explainer */}
         <PanelCard title="How This Works" icon={Users} className="sn-chart-panel" style={{ gridColumn: 'span 4' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <ShieldCheck size={20} style={{ color: 'var(--status-safe)', flexShrink: 0, marginTop: 2 }} />
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
               This is your personal profile for <strong style={{ color: 'var(--text-primary)' }}>{householdName || 'your home'}</strong>.
-              It shows your name and confirms your devices are safely connected. You don't need to change anything here —
-              everything is set up and working for you.
+              It shows your name, role, and confirms your home's devices are connected.
             </p>
           </div>
         </PanelCard>

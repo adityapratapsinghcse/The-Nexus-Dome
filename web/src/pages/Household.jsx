@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, UserPlus, Crown, User as UserIcon, Check, X, Search, Terminal } from 'lucide-react';
+import {
+  Users, UserPlus, Crown, User as UserIcon, Check, X, Search,
+  Cpu, Clock, ShieldCheck,
+} from 'lucide-react';
+import PanelCard from '../components/ui/PanelCard';
+import StatusPill from '../components/ui/StatusPill';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
@@ -8,11 +13,12 @@ export default function Household() {
   const [members, setMembers] = useState([]);
   const [requests, setRequests] = useState([]);
   const [myRole, setMyRole] = useState(null);
-  
+  const [deviceCount, setDeviceCount] = useState(null); // null = not loaded yet, don't show a fake 0
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  
+
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,28 +26,26 @@ export default function Household() {
   const loadData = useCallback(async () => {
     if (!householdId) return;
     try {
-      const res = await client.get('/api/auth/household-members/', {
-        params: { household_id: householdId },
-      });
-      
-      // Now that the backend sends 'is_active', this filter works perfectly
-      setMembers(res.data.filter(m => m.is_active || m.role === 'owner'));
-      setRequests(res.data.filter(m => m.is_active === false && m.role !== 'owner'));
-      
-      const me = res.data.find((m) => m.username === localStorage.getItem('smartnest_username'));
+      const [membersRes, devicesRes] = await Promise.all([
+        client.get('/api/auth/household-members/', { params: { household_id: householdId } }),
+        client.get('/api/devices/').catch(() => ({ data: [] })),
+      ]);
+
+      setMembers(membersRes.data.filter((m) => m.is_active || m.role === 'owner'));
+      setRequests(membersRes.data.filter((m) => m.is_active === false && m.role !== 'owner'));
+      setDeviceCount(devicesRes.data.length);
+
+      const me = membersRes.data.find((m) => m.username === localStorage.getItem('smartnest_username'));
       setMyRole(me?.role ?? null);
     } catch (err) {
-      setMsg({ type: 'error', text: 'CRITICAL: Data transmission bus query failed.' });
+      setMsg({ type: 'error', text: 'Could not load household data. Try refreshing.' });
     } finally {
       setLoading(false);
     }
   }, [householdId]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  // Live Autocomplete Effect
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (searchQuery.trim().length >= 2) {
@@ -50,14 +54,13 @@ export default function Household() {
           setSearchResults(res.data);
           setShowDropdown(true);
         } catch (err) {
-          console.error("Search failed. Check if /api/auth/search-users/ is in Django urls.py", err);
+          console.error('Search failed:', err);
         }
       } else {
         setSearchResults([]);
         setShowDropdown(false);
       }
     }, 300);
-
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
 
@@ -66,18 +69,19 @@ export default function Household() {
     setBusy(true);
     setMsg(null);
     try {
-      // Note: Owners adding someone directly makes them instantly ACTIVE. 
-      // Link Members registering from the login page creates PENDING requests.
+      // Note: owners adding someone directly makes them instantly active.
+      // Users who self-register as "member" and target this owner instead
+      // land in `requests` below as pending, via register_split.
       await client.post('/api/auth/invite/', {
         household_id: householdId,
         username: searchQuery.trim(),
       });
-      setMsg({ type: 'ok', text: `PROVISIONED: ${searchQuery} active.` });
+      setMsg({ type: 'ok', text: `${searchQuery} added to the household.` });
       setSearchQuery('');
       setShowDropdown(false);
       loadData();
     } catch (err) {
-      setMsg({ type: 'error', text: err.response?.data?.error || 'Execution link dropped.' });
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Failed to add member.' });
     } finally {
       setBusy(false);
     }
@@ -94,82 +98,129 @@ export default function Household() {
 
   const isOwner = myRole === 'owner';
 
+  if (loading) return <div className="sn-page-loading">Loading household…</div>;
+
   return (
-    <div className="sn-page" style={{ color: '#EDEFF3', boxSizing: 'border-box' }}>
-      <div className="sn-page-header" style={{ marginBottom: '24px' }}>
+    <div className="sn-page">
+      <div className="sn-page-header">
         <div>
-          <h1 className="sn-page-title" style={{ fontFamily: 'Manrope', fontSize: '1.6rem', margin: 0 }}>Household Access Control</h1>
-          <p className="sn-page-subtitle" style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', margin: '4px 0 0 0', fontSize: '0.8rem' }}>
-            NODE: {householdName?.toUpperCase()} // DOME_ID: {householdId}
+          <h1 className="sn-page-title">Household Access</h1>
+          <p className="sn-page-subtitle">
+            {householdName || 'Your home'} · {members.length} member{members.length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-        
-        {/* Active Operators Box */}
-        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
-            <Users size={16} style={{ color: '#C6813F' }} />
-            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>ACTIVE_DOME_OPERATORS</span>
+      {/* Stat cards — all real counts, no fabricated "online" or fixed device numbers */}
+      <div className="sn-grid sn-grid-4">
+        <PanelCard className="sn-stat-card">
+          <div className="sn-stat-icon-circle" style={{ background: 'rgba(198,129,63,0.18)', color: 'var(--accent-copper-bright)' }}>
+            <Users size={20} />
           </div>
+          <div className="sn-stat-card-body">
+            <div className="sn-stat-card-label">Total Members</div>
+            <div className="sn-stat-card-value">{members.length}</div>
+          </div>
+        </PanelCard>
 
-          {loading ? (
-            <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.8rem' }}>BUS_READING...</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {members.map((m) => (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'between', padding: '12px', background: '#232A33', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {m.role === 'owner' ? <Crown size={15} style={{ color: '#E0A868' }} /> : <UserIcon size={15} style={{ color: '#8C95A3' }} />}
-                    <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.9rem' }}>{m.username}</span>
-                  </div>
-                  <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.7rem', background: '#12161B', padding: '2px 6px', borderRadius: '3px', color: '#C6813F' }}>
-                    {m.role.toUpperCase()}
-                  </span>
-                </div>
-              ))}
-            </div>
+        <PanelCard className="sn-stat-card">
+          <div className="sn-stat-icon-circle" style={{ background: 'rgba(76,175,125,0.18)', color: 'var(--status-safe)' }}>
+            <ShieldCheck size={20} />
+          </div>
+          <div className="sn-stat-card-body">
+            <div className="sn-stat-card-label">Active Members</div>
+            <div className="sn-stat-card-value">{members.filter((m) => m.is_active !== false).length}</div>
+          </div>
+        </PanelCard>
+
+        <PanelCard className="sn-stat-card">
+          <div className="sn-stat-icon-circle" style={{ background: requests.length > 0 ? 'rgba(232,163,61,0.18)' : 'rgba(140,149,163,0.15)', color: requests.length > 0 ? 'var(--status-warning)' : 'var(--text-secondary)' }}>
+            <Clock size={20} />
+          </div>
+          <div className="sn-stat-card-body">
+            <div className="sn-stat-card-label">Pending Requests</div>
+            <div className="sn-stat-card-value">{requests.length}</div>
+          </div>
+        </PanelCard>
+
+        <PanelCard className="sn-stat-card">
+          <div className="sn-stat-icon-circle" style={{ background: 'rgba(79,163,209,0.18)', color: 'var(--accent-info)' }}>
+            <Cpu size={20} />
+          </div>
+          <div className="sn-stat-card-body">
+            <div className="sn-stat-card-label">Registered Boards</div>
+            <div className="sn-stat-card-value">{deviceCount ?? '--'}</div>
+          </div>
+        </PanelCard>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 16, marginBottom: 20 }}>
+        {/* Active members */}
+        <PanelCard title="Active Home Operators" icon={Users}>
+          {members.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No members yet.</p>
           )}
-        </div>
-
-        {/* Access Provisioning Box - OVERFLOW VISIBLE ADDED HERE */}
-        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', position: 'relative', overflow: 'visible' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
-            <UserPlus size={16} style={{ color: '#C6813F' }} />
-            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>DIRECT_PROVISION_NODE</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {members.map((m) => (
+              <div key={m.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', background: 'var(--bg-panel-raised)', borderRadius: 8,
+                border: '1px solid var(--border-subtle)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {m.role === 'owner'
+                    ? <Crown size={15} style={{ color: 'var(--accent-copper-bright)' }} />
+                    : <UserIcon size={15} style={{ color: 'var(--text-secondary)' }} />}
+                  <span style={{ fontSize: 14 }}>{m.username}</span>
+                </div>
+                <StatusPill
+                  status={m.role === 'owner' ? 'safe' : 'safe'}
+                  text={m.role.toUpperCase()}
+                />
+              </div>
+            ))}
           </div>
+        </PanelCard>
 
+        {/* Invite */}
+        <PanelCard title="Add a Member" icon={UserPlus}>
           {isOwner ? (
             <form onSubmit={handleInvite} style={{ position: 'relative' }} autoComplete="off">
-              <label style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.7rem', display: 'block', marginBottom: '6px' }}>TARGET_USER_SEARCH</label>
-              
-              <div style={{ display: 'flex', alignItems: 'center', background: '#12161B', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '4px', padding: '2px 10px', position: 'relative' }}>
-                <Search size={14} style={{ color: '#8C95A3', marginRight: '8px' }} />
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                Search by username
+              </label>
+              <div style={{
+                display: 'flex', alignItems: 'center', background: 'var(--bg-panel-raised)',
+                border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '2px 12px',
+              }}>
+                <Search size={14} style={{ color: 'var(--text-secondary)', marginRight: 8, flexShrink: 0 }} />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => { if(searchResults.length > 0) setShowDropdown(true); }}
-                  placeholder="Type username..."
+                  onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
+                  placeholder="Type a username..."
                   required
-                  style={{ width: '100%', background: 'none', border: 0, padding: '8px 0', color: '#EDEFF3', fontFamily: 'JetBrains Mono', outline: 'none' }}
+                  style={{
+                    width: '100%', background: 'none', border: 0, padding: '9px 0',
+                    color: 'var(--text-primary)', fontFamily: 'var(--font-body)', outline: 'none', fontSize: 14,
+                  }}
                 />
               </div>
 
-              {/* Floating Dropdown - Higher Z-Index */}
               {showDropdown && searchResults.length > 0 && (
-                <div style={{ 
-                  position: 'absolute', top: '65px', left: '0', right: '0', 
-                  background: '#232A33', border: '1px solid rgba(255,255,255,0.1)', 
-                  borderRadius: '4px', zIndex: 9999, boxShadow: '0 12px 32px rgba(0,0,0,0.6)'
+                <div style={{
+                  position: 'absolute', top: 62, left: 0, right: 0, background: 'var(--bg-panel-raised)',
+                  border: '1px solid var(--border-subtle)', borderRadius: 8, zIndex: 50,
+                  boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
                 }}>
-                  {searchResults.map(u => (
-                    <div 
-                      key={u.id} 
-                      onClick={() => { setSearchQuery(u.username); setShowDropdown(false); }} 
-                      style={{ padding: '12px 16px', fontFamily: 'JetBrains Mono', color: '#EDEFF3', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.85rem', transition: 'background 0.2s' }}
-                      onMouseEnter={(e) => e.target.style.background = '#12161B'}
-                      onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                  {searchResults.map((u) => (
+                    <div
+                      key={u.id}
+                      onClick={() => { setSearchQuery(u.username); setShowDropdown(false); }}
+                      style={{
+                        padding: '10px 14px', color: 'var(--text-primary)', cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-subtle)', fontSize: 13.5,
+                      }}
                     >
                       {u.username}
                     </div>
@@ -177,42 +228,89 @@ export default function Household() {
                 </div>
               )}
 
-              <button style={{ width: '100%', marginTop: '16px', background: '#C6813F', color: '#EDEFF3', border: 0, padding: '12px', fontFamily: 'JetBrains Mono', cursor: 'pointer', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }} disabled={busy}>
-                {busy ? 'SYNCHRONIZING...' : 'AUTHORIZE_OPERATOR'}
+              <button
+                disabled={busy}
+                style={{
+                  width: '100%', marginTop: 14, background: 'var(--accent-copper-bright)', color: '#1a1208',
+                  border: 0, padding: '11px 0', fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
+                  borderRadius: 8, fontSize: 13,
+                }}
+              >
+                {busy ? 'Adding…' : 'Add to Household'}
               </button>
             </form>
           ) : (
-            <p style={{ fontFamily: 'Manrope', color: '#E8A33D', fontSize: '0.85rem', margin: 0 }}>
-              Read-only terminal profile. Invite provisioning locked for current permission ring.
+            <p style={{ color: 'var(--status-warning)', fontSize: 13.5, margin: 0 }}>
+              Only the household owner can add members.
             </p>
           )}
 
-          {msg && <p style={{ marginTop: '12px', fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: msg.type === 'ok' ? '#4CAF7D' : '#E15554', margin: '12px 0 0 0' }}>{msg.text}</p>}
-        </div>
+          {msg && (
+            <p style={{
+              marginTop: 12, fontSize: 12.5, margin: '12px 0 0 0',
+              color: msg.type === 'ok' ? 'var(--status-safe)' : 'var(--status-critical)',
+            }}>
+              {msg.text}
+            </p>
+          )}
+
+          <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 14, marginBottom: 0 }}>
+            This only works for users who already have an account — there's no email invite link yet.
+            To join without an existing account, someone registers separately as a "member" targeting your username,
+            and their request appears below for you to approve.
+          </p>
+        </PanelCard>
       </div>
 
-      {/* Access Requests Matrix Breaker */}
+      {/* Pending requests */}
       {isOwner && (
-        <div className="ui-panel" style={{ background: '#1B2028', border: '1px solid rgba(255,255,255,0.07)', padding: '20px', borderRadius: '6px', marginTop: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '16px' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: requests.length > 0 ? '#E15554' : '#4CAF7D', display: 'inline-block' }} />
-            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.85rem', letterSpacing: '0.05em' }}>PENDING_BUS_LINK_REQUESTS</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {requests.map(r => (
-              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#232A33', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                <span style={{ fontFamily: 'JetBrains Mono', color: '#EDEFF3', fontSize: '0.85rem' }}><Terminal size={12} style={{ display: 'inline', marginRight: 6, color: '#C6813F' }} />{r.username} // INBOUND_REQ_LINK</span>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => handleAction(r.id, 'approve')} style={{ background: '#4CAF7D', color: '#EDEFF3', border: 0, padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Check size={14} /></button>
-                  <button onClick={() => handleAction(r.id, 'deny')} style={{ background: '#E15554', color: '#EDEFF3', border: 0, padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
+        <PanelCard title="Pending Join Requests" icon={Clock} style={{ marginBottom: 20 }}>
+          {requests.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>No pending requests.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {requests.map((r) => (
+                <div key={r.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: 'var(--bg-panel-raised)', padding: '10px 12px', borderRadius: 8,
+                  border: '1px solid var(--border-subtle)',
+                }}>
+                  <span style={{ fontSize: 14 }}>{r.username}</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => handleAction(r.id, 'approve')}
+                      style={{
+                        background: 'var(--status-safe)', color: '#0E1A14', border: 0, padding: '6px 10px',
+                        borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleAction(r.id, 'deny')}
+                      style={{
+                        background: 'var(--status-critical)', color: '#2A0E0E', border: 0, padding: '6px 10px',
+                        borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {requests.length === 0 && <p style={{ fontFamily: 'JetBrains Mono', color: '#8C95A3', fontSize: '0.75rem', margin: 0 }}>NO_INBOUND_REQUESTS_DETECTED</p>}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </PanelCard>
       )}
+
+      {/* Honest note replacing the fake permissions matrix */}
+      <PanelCard title="Access Levels" icon={ShieldCheck}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+          Roles are currently Owner or Member only — there's no per-feature permissions matrix (Access Gate,
+          Control Devices, Admin Access, etc.) in the backend yet. Owners can add and approve members; members
+          can view and use the dashboard the same as owners otherwise.
+        </p>
+      </PanelCard>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Zap, IndianRupee, TrendingUp, Sparkles, Sliders, Play, RefreshCw, AlertCircle } from 'lucide-react';
+import { Zap, TrendingUp, Sparkles, RefreshCw, Lightbulb, Fan } from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
 import DialGauge from '../components/ui/DialGauge';
 import StatusPill from '../components/ui/StatusPill';
@@ -8,22 +8,17 @@ import client from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
 
+const MAINS_VOLTAGE = 230; // same assumption backend's energy_summary already makes
+
 export default function Energy() {
   const { householdId } = useAuth();
   const [device, setDevice] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentDraw, setCurrentDraw] = useState(0);
+  const [currentDraw, setCurrentDraw] = useState(null); // null = not seen yet, not "0 A"
   const [summary, setSummary] = useState({ today_kwh: 0, week_total_kwh: 0, daily_breakdown: [], has_data: false });
-
-  // New interactive parameters
-  const [tariffRate, setTariffRate] = useState(7.5); // Custom cost per kWh
-  const [applianceHours, setApplianceHours] = useState({
-    ac: 4,      // Air Conditioner: 1500W
-    fan: 8,     // Ceiling Fan: 75W
-    lights: 6,  // LED Lights: 50W
-    fridge: 24, // Refrigerator: 200W
-    pump: 0.5   // Water Pump: 750W
-  });
+  const [lightOn, setLightOn] = useState(null);
+  const [fanOn, setFanOn] = useState(null);
+  const [tariffRate, setTariffRate] = useState(7.5); // user-adjustable estimate, never a real billing rate
 
   const { lastMessage } = useWebSocket('/ws/sensors/', householdId);
 
@@ -39,8 +34,16 @@ export default function Energy() {
         client.get(`/api/sensors/latest/?device_id=${primaryDevice.id}`),
         client.get(`/api/energy/summary/?device_id=${primaryDevice.id}`),
       ]);
+
       const currentReading = latestRes.data.find((r) => r.sensor_type === 'current');
       if (currentReading) setCurrentDraw(currentReading.value);
+
+      const lightReading = latestRes.data.find((r) => r.sensor_type === 'light_relay');
+      if (lightReading) setLightOn(lightReading.value === 1);
+
+      const fanReading = latestRes.data.find((r) => r.sensor_type === 'fan_relay');
+      if (fanReading) setFanOn(fanReading.value === 1);
+
       setSummary(summaryRes.data);
     } catch (err) {
       console.error('Failed to load energy data:', err);
@@ -49,52 +52,45 @@ export default function Energy() {
     }
   };
 
-  useEffect(() => {
-    fetchEnergyData();
-  }, [householdId]);
+  useEffect(() => { fetchEnergyData(); }, [householdId]);
 
   useEffect(() => {
     if (lastMessage?.current_amps !== undefined) setCurrentDraw(lastMessage.current_amps);
+    if (lastMessage?.light_on !== undefined) setLightOn(lastMessage.light_on);
+    if (lastMessage?.fan_on !== undefined) setFanOn(lastMessage.fan_on);
   }, [lastMessage]);
 
-  // Handle custom appliance load calculations
-  const calculateApplianceLoad = () => {
-    const acKwh = (1500 * applianceHours.ac) / 1000;
-    const fanKwh = (75 * applianceHours.fan) / 1000;
-    const lightsKwh = (50 * applianceHours.lights) / 1000;
-    const fridgeKwh = (200 * applianceHours.fridge) / 1000;
-    const pumpKwh = (750 * applianceHours.pump) / 1000;
-    
-    const totalDailyKwh = acKwh + fanKwh + lightsKwh + fridgeKwh + pumpKwh;
-    const monthlyCost = totalDailyKwh * 30 * tariffRate;
-    return {
-      dailyKwh: totalDailyKwh,
-      monthlyCost: monthlyCost,
-      acShare: (acKwh / totalDailyKwh) * 100 || 0,
-      fanShare: (fanKwh / totalDailyKwh) * 100 || 0,
-      lightsShare: (lightsKwh / totalDailyKwh) * 100 || 0,
-      fridgeShare: (fridgeKwh / totalDailyKwh) * 100 || 0,
-      pumpShare: (pumpKwh / totalDailyKwh) * 100 || 0
-    };
+  const sendCommand = async (action) => {
+    if (!device) return;
+    try {
+      await client.post('/api/commands/send/', { device: device.id, action });
+    } catch (err) {
+      console.error('Command failed to send:', err);
+    }
   };
 
-  const calculatedLoad = calculateApplianceLoad();
-  const currentWatts = currentDraw * 230;
-  
-  // Real-time projected cost
-  const realTimeMonthEstimate = summary.today_kwh > 0 ? (summary.today_kwh * 30 * tariffRate) : calculatedLoad.monthlyCost;
-
-  const handleSliderChange = (appliance, value) => {
-    setApplianceHours(prev => ({ ...prev, [appliance]: Number(value) }));
+  const toggleLight = () => {
+    setLightOn((prev) => !prev);
+    sendCommand(lightOn ? 'light_off' : 'light_on');
+  };
+  const toggleFan = () => {
+    setFanOn((prev) => !prev);
+    sendCommand(fanOn ? 'fan_off' : 'fan_on');
   };
 
-  if (loading) return <div className="sn-page-loading">Initializing power grid shunts...</div>;
+  const currentWatts = currentDraw != null ? currentDraw * MAINS_VOLTAGE : null;
+
+  // Extrapolated from real 7-day data — explicitly labeled as an estimate, never blended
+  // silently into a "measured" figure the way the old appliance simulator did.
+  const monthlyEstimate = summary.has_data ? (summary.week_total_kwh / 7) * 30 * tariffRate : null;
+
+  if (loading) return <div className="sn-page-loading">Loading energy data…</div>;
 
   if (!device) {
     return (
       <div className="sn-page">
         <h1 className="sn-page-title">Energy</h1>
-        <p className="sn-page-subtitle">No operational energy shunts discovered. Register an ACS712 board to log load telemetry.</p>
+        <p className="sn-page-subtitle">No devices found yet. Add an ESP32 board under Settings to get started.</p>
       </div>
     );
   }
@@ -102,22 +98,6 @@ export default function Energy() {
   return (
     <div className="sn-page energy-page">
       <style>{`
-        .energy-page {
-          padding: 20px;
-        }
-
-        .glass-panel {
-          background: rgba(27, 32, 40, 0.7); 
-          backdrop-filter: blur(25px); 
-          -webkit-backdrop-filter: blur(25px);
-          border: 1px solid rgba(255, 255, 255, 0.06); 
-          border-radius: 16px; 
-          padding: 24px;
-          box-shadow: 0 16px 36px rgba(0,0,0,0.35); 
-          display: flex; 
-          flex-direction: column;
-        }
-
         .stat-grid-row {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -125,14 +105,11 @@ export default function Energy() {
           margin-bottom: 20px;
         }
         @media (max-width: 900px) {
-          .stat-grid-row {
-            grid-template-columns: repeat(2, 1fr);
-          }
+          .stat-grid-row { grid-template-columns: repeat(2, 1fr); }
         }
-
         .telemetry-stat-card {
-          background: rgba(18, 22, 27, 0.55);
-          border: 1px solid rgba(255,255,255,0.03);
+          background: var(--bg-panel);
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 16px;
         }
@@ -147,7 +124,6 @@ export default function Energy() {
           font-weight: 700;
           color: var(--text-primary);
         }
-
         .energy-layout-main {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -155,43 +131,14 @@ export default function Energy() {
           margin-bottom: 20px;
         }
         @media (max-width: 900px) {
-          .energy-layout-main {
-            grid-template-columns: 1fr;
-          }
+          .energy-layout-main { grid-template-columns: 1fr; }
         }
-
-        /* Appliance matrix slider grid */
-        .appliance-simulator-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .appliance-slider-row {
-          background: var(--bg-deep);
-          border: 1px solid rgba(255,255,255,0.03);
-          border-radius: 8px;
-          padding: 12px;
-        }
-        .appliance-slider-meta {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.75rem;
-          color: var(--text-secondary);
-          margin-bottom: 6px;
-        }
-        .appliance-val-read {
-          font-family: var(--font-mono);
-          color: var(--accent-copper-bright);
-          font-weight: 700;
-        }
-
-        /* Tariff modifier tool */
         .tariff-calibration-box {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background: var(--bg-deep);
-          border: 1px solid rgba(255,255,255,0.04);
+          background: var(--bg-panel-raised);
+          border: 1px solid var(--border-subtle);
           border-radius: 8px;
           padding: 12px;
           margin-bottom: 16px;
@@ -207,153 +154,139 @@ export default function Energy() {
           color: var(--accent-copper-bright);
           font-weight: 700;
           font-size: 0.95rem;
-          min-width: 50px;
+          min-width: 60px;
           text-align: right;
+        }
+        .appliance-quick-row {
+          display: flex;
+          gap: 12px;
+        }
+        .appliance-quick-tile {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: var(--bg-panel-raised);
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          padding: 12px;
+          cursor: pointer;
+          color: inherit;
+          font: inherit;
         }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border-subtle)' }}>
         <div>
           <div className="sn-page-header">
-            <h1 className="sn-page-title">Energy Command Panel</h1>
+            <h1 className="sn-page-title">Energy</h1>
             <div className="sn-live-indicator">
-              <StatusPill status="safe" text="ACS712 SHUNT ACTIVE" />
+              <StatusPill status={device.is_online ? 'safe' : 'critical'} text={device.is_online ? 'ESP32 ONLINE' : 'ESP32 OFFLINE'} />
             </div>
           </div>
-          <p className="sn-page-subtitle readout">{device.name} // NODE_POWER_BUS_EST_OK</p>
+          <p className="sn-page-subtitle">{device.name} — live from ACS712</p>
         </div>
-        <button className="sn-icon-btn" onClick={fetchEnergyData} title="Sync Energy Data">
+        <button className="sn-icon-btn" onClick={fetchEnergyData} title="Refresh">
           <RefreshCw size={14} />
         </button>
       </div>
 
-      {/* Stats Row */}
+      {/* Stats — every value here is real or explicitly marked as unavailable */}
       <div className="stat-grid-row">
         <div className="telemetry-stat-card">
-          <span className="label-eyebrow">ACS712 Amps</span>
+          <span className="label-eyebrow">Current (ACS712)</span>
           <div className="stat-row-inner">
-            <span className="stat-value readout">{currentDraw.toFixed(2)}<span className="sn-stat-unit">A</span></span>
-            <StatusPill status={currentDraw > 3.2 ? 'critical' : currentDraw > 2.2 ? 'warning' : 'safe'} text={currentDraw > 3.2 ? 'OVERLOAD' : 'NOMINAL'} />
+            <span className="stat-value readout">{currentDraw != null ? currentDraw.toFixed(2) : '--'}<span className="sn-stat-unit">A</span></span>
+            <StatusPill
+              status={currentDraw == null ? 'warning' : currentDraw > 3.2 ? 'critical' : currentDraw > 2.2 ? 'warning' : 'safe'}
+              text={currentDraw == null ? 'NO DATA' : currentDraw > 3.2 ? 'OVERLOAD' : 'NORMAL'}
+            />
           </div>
         </div>
 
         <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Load Watts (Est.)</span>
+          <span className="label-eyebrow">Power Draw (Est.)</span>
           <div className="stat-row-inner">
-            <span className="stat-value readout">{Math.round(currentWatts)}<span className="sn-stat-unit">W</span></span>
-            <StatusPill status="safe" text="GRID OK" />
+            <span className="stat-value readout">{currentWatts != null ? Math.round(currentWatts) : '--'}<span className="sn-stat-unit">W</span></span>
+            <StatusPill status={currentWatts == null ? 'warning' : 'safe'} text={currentWatts == null ? 'NO DATA' : `${MAINS_VOLTAGE}V ASSUMED`} />
           </div>
         </div>
 
         <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Today Sum</span>
+          <span className="label-eyebrow">Today's Energy</span>
           <div className="stat-row-inner">
-            <span className="stat-value readout">{summary.today_kwh > 0 ? summary.today_kwh.toFixed(2) : calculatedLoad.dailyKwh.toFixed(2)}<span className="sn-stat-unit">kWh</span></span>
-            <StatusPill status="safe" text="SHUNTS OK" />
+            <span className="stat-value readout">{summary.has_data ? summary.today_kwh.toFixed(2) : '--'}<span className="sn-stat-unit">kWh</span></span>
+            <StatusPill status={summary.has_data ? 'safe' : 'warning'} text={summary.has_data ? 'MEASURED' : 'NO DATA YET'} />
           </div>
         </div>
 
         <div className="telemetry-stat-card">
-          <span className="label-eyebrow">Tariff Cost (Est.)</span>
+          <span className="label-eyebrow">Est. Monthly Cost</span>
           <div className="stat-row-inner">
-            <span className="stat-value readout">₹{Math.round(realTimeMonthEstimate)}</span>
-            <StatusPill status="safe" text="MONTHLY" />
+            <span className="stat-value readout">{monthlyEstimate != null ? `₹${Math.round(monthlyEstimate)}` : '--'}</span>
+            <StatusPill status="warning" text="ESTIMATE" />
           </div>
         </div>
       </div>
 
-      {/* Tariff Calibration Slider Tool */}
+      {/* Tariff — clearly a what-if slider, never blended into "measured" figures */}
       <div className="tariff-calibration-box">
-        <span className="label-eyebrow" style={{ color: 'var(--text-primary)' }}>Electric Tariff Rate</span>
-        <input 
-          type="range" 
-          min="4" 
-          max="15" 
-          step="0.5" 
-          value={tariffRate} 
-          onChange={(e) => setTariffRate(Number(e.target.value))} 
-          className="input-tariff-slider" 
+        <span className="label-eyebrow" style={{ color: 'var(--text-primary)' }}>Electric Tariff Rate (your input, not a real utility rate)</span>
+        <input
+          type="range" min="4" max="15" step="0.5"
+          value={tariffRate}
+          onChange={(e) => setTariffRate(Number(e.target.value))}
+          className="input-tariff-slider"
         />
         <span className="tariff-rate-read">₹{tariffRate.toFixed(2)}/kWh</span>
       </div>
 
-      {/* Main Layout Grid */}
       <div className="energy-layout-main">
-        
-        {/* Left Side: Dynamic Appliance Load Simulator */}
-        <PanelCard title="Appliance Load Duty Cycle Matrix" icon={Sliders}>
-          <div className="appliance-simulator-panel">
-            <p className="sn-page-subtitle" style={{ fontSize: '0.75rem', lineHeight: 1.4, margin: '0 0 4px' }}>
-              Simulates daily appliance runtime hours to calculate estimated power grid share and monthly overhead budget.
-            </p>
-
-            <div className="appliance-slider-row">
-              <div className="appliance-slider-meta">
-                <span>Air Conditioner (1.5 Ton AC - 1500W)</span>
-                <span className="appliance-val-read">{applianceHours.ac} hrs</span>
+        {/* Left: real relay controls only */}
+        <PanelCard title="Connected Appliances" icon={Zap}>
+          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 0, marginBottom: 14 }}>
+            Only relay-controlled loads are shown — one ACS712 measures total house current, not per-appliance draw.
+          </p>
+          <div className="appliance-quick-row">
+            <button className="appliance-quick-tile" onClick={toggleLight}>
+              <Lightbulb size={18} style={{ color: lightOn ? 'var(--status-warning)' : 'var(--text-secondary)' }} />
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>Room Lights</div>
+                <span className="ui-pill" style={{
+                  color: lightOn ? 'var(--status-safe)' : 'var(--text-secondary)',
+                  borderColor: lightOn ? 'rgba(76,175,125,0.3)' : 'var(--border-subtle)',
+                  background: lightOn ? 'rgba(76,175,125,0.1)' : 'transparent',
+                }}>
+                  {lightOn == null ? '--' : lightOn ? 'ON' : 'OFF'}
+                </span>
               </div>
-              <input 
-                type="range" min="0" max="24" step="0.5" 
-                value={applianceHours.ac} 
-                onChange={(e) => handleSliderChange('ac', e.target.value)} 
-                style={{ width: '100%', accentColor: 'var(--accent-copper)' }} 
-              />
-            </div>
+            </button>
 
-            <div className="appliance-slider-row">
-              <div className="appliance-slider-meta">
-                <span>Ceiling Cooling Fan (75W)</span>
-                <span className="appliance-val-read">{applianceHours.fan} hrs</span>
+            <button className="appliance-quick-tile" onClick={toggleFan}>
+              <Fan size={18} style={{ color: fanOn ? 'var(--accent-info)' : 'var(--text-secondary)' }} />
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>Cooling Fan</div>
+                <span className="ui-pill" style={{
+                  color: fanOn ? 'var(--status-safe)' : 'var(--text-secondary)',
+                  borderColor: fanOn ? 'rgba(76,175,125,0.3)' : 'var(--border-subtle)',
+                  background: fanOn ? 'rgba(76,175,125,0.1)' : 'transparent',
+                }}>
+                  {fanOn == null ? '--' : fanOn ? 'ON' : 'OFF'}
+                </span>
               </div>
-              <input 
-                type="range" min="0" max="24" step="0.5" 
-                value={applianceHours.fan} 
-                onChange={(e) => handleSliderChange('fan', e.target.value)} 
-                style={{ width: '100%', accentColor: 'var(--accent-copper)' }} 
-              />
-            </div>
-
-            <div className="appliance-slider-row">
-              <div className="appliance-slider-meta">
-                <span>Ecosystem Lights (50W total LED)</span>
-                <span className="appliance-val-read">{applianceHours.lights} hrs</span>
-              </div>
-              <input 
-                type="range" min="0" max="24" step="0.5" 
-                value={applianceHours.lights} 
-                onChange={(e) => handleSliderChange('lights', e.target.value)} 
-                style={{ width: '100%', accentColor: 'var(--accent-copper)' }} 
-              />
-            </div>
-
-            <div className="appliance-slider-row">
-              <div className="appliance-slider-meta">
-                <span>Refrigerator (200W constant cycle)</span>
-                <span className="appliance-val-read">{applianceHours.fridge} hrs</span>
-              </div>
-              <input 
-                type="range" min="0" max="24" step="1" 
-                value={applianceHours.fridge} 
-                onChange={(e) => handleSliderChange('fridge', e.target.value)} 
-                style={{ width: '100%', accentColor: 'var(--accent-copper)' }} 
-              />
-            </div>
+            </button>
           </div>
         </PanelCard>
 
-        {/* Right Side: Usage Trend */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
-          {/* Live dial gauge ammeter */}
-          <PanelCard title="Transducer Ammeter Dial" icon={Zap} accent>
+        {/* Right: gauge + chart, unchanged from before, both already real */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <PanelCard title="Live Ammeter" icon={Zap} accent>
             <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
-              <DialGauge value={currentDraw} max={5} unit="A" label="ACS712 Amps" size={120} thresholds={{ warning: 2.5, critical: 3.2 }} />
+              <DialGauge value={currentDraw ?? 0} max={5} unit="A" label="ACS712 Amps" size={120} thresholds={{ warning: 2.5, critical: 3.2 }} />
             </div>
           </PanelCard>
 
-          {/* 7-Day Usage Recharts Chart */}
-          <PanelCard title="7-Day Consumption Log" icon={TrendingUp}>
+          <PanelCard title="7-Day Consumption" icon={TrendingUp}>
             {summary.daily_breakdown && summary.daily_breakdown.some((d) => d.kwh > 0) ? (
               <>
                 <ResponsiveContainer width="100%" height={160}>
@@ -366,38 +299,35 @@ export default function Energy() {
                       labelStyle={{ color: 'var(--text-secondary)' }}
                       formatter={(value) => [`${value} kWh`, 'Usage']}
                     />
-                    <Bar dataKey="kwh" fill="var(--accent-copper-bright)" radius={[4,4,0,0]} />
+                    <Bar dataKey="kwh" fill="var(--accent-copper-bright)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="sn-week-total">
-                  <span>Weekly Accumulative Tally</span>
+                  <span>Weekly Total</span>
                   <span className="readout">{summary.week_total_kwh.toFixed(2)} kWh</span>
                 </div>
               </>
             ) : (
               <p className="sn-page-subtitle" style={{ textAlign: 'center', padding: '40px 0' }}>
-                Accumulating ACS712 telemetry data to plot daily consumption logs...
+                No consumption data yet — this fills in as the ESP32 reports ACS712 readings.
               </p>
             )}
           </PanelCard>
-
         </div>
-
       </div>
 
-      {/* AI forecast section */}
-      <PanelCard title="AI Load Predictive forecaster" icon={Sparkles} className="sn-ml-placeholder">
+      <PanelCard title="AI Load Forecasting" icon={Sparkles} className="sn-ml-placeholder">
         <div className="sn-ml-placeholder-content">
           <Sparkles size={28} className="sn-ml-placeholder-icon" />
           <div>
-            <p className="sn-ml-placeholder-title">Linear Regression Predictive Model</p>
+            <p className="sn-ml-placeholder-title">Coming in Phase 7</p>
             <p className="sn-ml-placeholder-desc">
-              ML modules trigger training operations automatically once 14 consecutive observation days compile to database shunts. Forecaster maps monthly tariff estimations, peak-load warnings, and logs anomalies.
+              Not built yet — needs sustained daily current data before any prediction model would be meaningful.
+              Currently no ML pipeline exists beyond the empty prediction-log model in your `ml` app.
             </p>
           </div>
         </div>
       </PanelCard>
-
     </div>
   );
 }

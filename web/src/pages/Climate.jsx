@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Thermometer, Droplets, Fan, Wind, Sun, Minus, Plus, RefreshCw, Layers } from 'lucide-react';
+import { Thermometer, Droplets, Fan, Sun, Minus, Plus, RefreshCw } from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
 import DialGauge from '../components/ui/DialGauge';
 import ToggleSwitch from '../components/ui/ToggleSwitch';
@@ -9,6 +9,8 @@ import client from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../context/AuthContext';
 
+const TARGET_TEMP_DEBOUNCE_MS = 800;
+
 export default function Climate() {
   const { householdId } = useAuth();
   const [device, setDevice] = useState(null);
@@ -16,15 +18,13 @@ export default function Climate() {
   const [currentTemp, setCurrentTemp] = useState(null);
   const [humidity, setHumidity] = useState(null);
   const [targetTemp, setTargetTemp] = useState(24);
+  const [targetSent, setTargetSent] = useState(null); // last value actually sent as a Command
   const [fanOn, setFanOn] = useState(false);
-  const [autoMode, setAutoMode] = useState(true);
+  const [fanSpeed, setFanSpeed] = useState(2); // 0: Off, 1: Low, 2: Med, 3: High
   const [history, setHistory] = useState([]);
   const dialRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-
-  // New interactive features
-  const [profileMode, setProfileMode] = useState('comfort'); // 'eco' | 'comfort' | 'performance'
-  const [fanSpeed, setFanSpeed] = useState(2); // 0: Off, 1: Low, 2: Med, 3: High
+  const debounceRef = useRef(null);
 
   const { lastMessage } = useWebSocket('/ws/sensors/', householdId);
 
@@ -58,9 +58,7 @@ export default function Climate() {
     }
   };
 
-  useEffect(() => {
-    fetchClimateData();
-  }, [householdId]);
+  useEffect(() => { fetchClimateData(); }, [householdId]);
 
   useEffect(() => {
     if (!lastMessage) return;
@@ -84,6 +82,21 @@ export default function Climate() {
     }
   };
 
+  // Debounced so dragging the dial doesn't fire a Command on every pixel of movement —
+  // only sends once the value settles for TARGET_TEMP_DEBOUNCE_MS.
+  const scheduleTargetSend = useCallback((temp) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      sendCommand('set_target_temp', { temp });
+      setTargetSent(temp);
+    }, TARGET_TEMP_DEBOUNCE_MS);
+  }, [device]);
+
+  const updateTarget = (temp) => {
+    setTargetTemp(temp);
+    scheduleTargetSend(temp);
+  };
+
   const angleFromTemp = (temp) => -135 + ((temp - 16) / 16) * 270;
   const tempFromAngle = (angle) => Math.round((16 + ((angle + 135) / 270) * 16) * 2) / 2;
 
@@ -96,10 +109,7 @@ export default function Climate() {
     if (angle > 180) angle -= 360;
     const clamped = Math.max(-135, Math.min(135, angle));
     const newTemp = tempFromAngle(clamped);
-    if (newTemp >= 16 && newTemp <= 32) {
-      setTargetTemp(newTemp);
-      setAutoMode(false);
-    }
+    if (newTemp >= 16 && newTemp <= 32) updateTarget(newTemp);
   }, []);
 
   useEffect(() => {
@@ -121,39 +131,26 @@ export default function Climate() {
     };
   }, [dragging, handleDialInteraction]);
 
-  // Adjust Target Temp based on active profiles
-  const applyProfile = (mode) => {
-    setProfileMode(mode);
-    setAutoMode(false);
-    if (mode === 'eco') {
-      setTargetTemp(26.5);
-    } else if (mode === 'comfort') {
-      setTargetTemp(22.5);
-    } else if (mode === 'performance') {
-      setTargetTemp(19.0);
-    }
-  };
-
   const handleFanSpeedChange = (speed) => {
     setFanSpeed(speed);
-    setAutoMode(false);
     sendCommand(`fan_speed_${speed}`);
   };
 
+  // Comfort index is a formula over two real sensor readings (temp + humidity),
+  // same category as a "feels like" figure — not a fabricated sensor.
   const comfortIndex = currentTemp !== null
     ? Math.max(0, 100 - Math.abs(currentTemp - 23) * 8 - Math.abs((humidity ?? 50) - 50) * 0.6)
-    : 0;
+    : null;
 
-  // Spin speed mapping for visual fan animation
   const animationDurationMap = ['0s', '4s', '1.5s', '0.4s'];
 
-  if (loading) return <div className="sn-page-loading">Initializing climate systems...</div>;
+  if (loading) return <div className="sn-page-loading">Loading climate data…</div>;
 
   if (!device) {
     return (
       <div className="sn-page">
         <h1 className="sn-page-title">Climate</h1>
-        <p className="sn-page-subtitle">No climate controller discovered. Verify DHT22 mappings on your ESP32 main board.</p>
+        <p className="sn-page-subtitle">No devices found yet. Add an ESP32 board under Settings to get started.</p>
       </div>
     );
   }
@@ -161,9 +158,7 @@ export default function Climate() {
   return (
     <div className="sn-page climate-page">
       <style>{`
-        .climate-page {
-          padding: 20px;
-        }
+        .climate-page { padding: 20px; }
         .climate-layout-main {
           display: grid;
           grid-template-columns: 1.3fr 1fr;
@@ -171,47 +166,14 @@ export default function Climate() {
           margin-bottom: 20px;
         }
         @media (max-width: 900px) {
-          .climate-layout-main {
-            grid-template-columns: 1fr;
-          }
+          .climate-layout-main { grid-template-columns: 1fr; }
         }
-
-        /* Profile modes switch */
-        .profile-mode-selector {
-          display: flex;
-          background: var(--bg-deep);
-          padding: 4px;
-          border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          margin-bottom: 18px;
-          width: 100%;
-        }
-        .profile-btn {
-          flex: 1;
-          padding: 8px;
-          border-radius: 6px;
-          border: none;
-          background: transparent;
-          color: var(--text-secondary);
-          font-family: var(--font-mono);
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .profile-btn.active {
-          background: var(--accent-copper);
-          color: var(--bg-deep);
-          box-shadow: 0 0 10px rgba(198, 129, 63, 0.2);
-        }
-
-        /* Spinning Fan visual */
         .fan-speed-visual-panel {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background: var(--bg-deep);
-          border: 1px solid rgba(255,255,255,0.03);
+          background: var(--bg-panel-raised);
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           padding: 16px;
           margin-top: 14px;
@@ -225,16 +187,11 @@ export default function Climate() {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-
-        .fan-keys-row {
-          display: flex;
-          gap: 6px;
-          margin-top: 10px;
-        }
+        .fan-keys-row { display: flex; gap: 6px; margin-top: 10px; }
         .btn-speed-select {
           flex: 1;
-          background: var(--bg-deep);
-          border: 1px solid rgba(255,255,255,0.04);
+          background: var(--bg-panel-raised);
+          border: 1px solid var(--border-subtle);
           color: var(--text-secondary);
           padding: 8px 0;
           border-radius: 6px;
@@ -244,64 +201,45 @@ export default function Climate() {
           cursor: pointer;
           transition: all 0.15s;
         }
+        .btn-speed-select:disabled { opacity: 0.4; cursor: not-allowed; }
         .btn-speed-select.active {
           border-color: var(--accent-copper);
           background: rgba(198, 129, 63, 0.12);
           color: var(--accent-copper-bright);
         }
-
-        .comfort-stat-card {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 16px 0;
+        .comfort-stat-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 0; }
+        .target-note {
+          font-size: 11.5px;
+          color: var(--text-secondary);
+          text-align: center;
+          margin-top: 10px;
+          max-width: 280px;
+          margin-left: auto;
+          margin-right: auto;
         }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border-subtle)' }}>
         <div>
           <div className="sn-page-header">
             <h1 className="sn-page-title">Climate Control</h1>
             <div className="sn-live-indicator">
-              <StatusPill status={autoMode ? 'safe' : 'warning'} text={autoMode ? 'AUTO MODE' : 'MANUAL OVERRIDE'} />
+              <StatusPill status={device.is_online ? 'safe' : 'critical'} text={device.is_online ? 'DHT22 ONLINE' : 'DEVICE OFFLINE'} />
             </div>
           </div>
-          <p className="sn-page-subtitle readout">{device.name} // DHT22_HYGROMETER_INTEGRATED</p>
+          <p className="sn-page-subtitle">{device.name}</p>
         </div>
-        <button className="sn-icon-btn" onClick={fetchClimateData} title="Sync Climate Data">
+        <button className="sn-icon-btn" onClick={fetchClimateData} title="Refresh">
           <RefreshCw size={14} />
         </button>
       </div>
 
-      {/* Main layout grids */}
       <div className="climate-layout-main">
-        
-        {/* Left hand circular Thermostat */}
-        <PanelCard title="System Thermostat" icon={Thermometer} accent className="sn-thermostat-panel">
-          
-          {/* Profile Switch Tab Bar */}
-          <div className="profile-mode-selector">
-            <button 
-              onClick={() => applyProfile('eco')}
-              className={`profile-btn ${profileMode === 'eco' ? 'active' : ''}`}
-            >
-              ECO PROFILE (26.5°)
-            </button>
-            <button 
-              onClick={() => applyProfile('comfort')}
-              className={`profile-btn ${profileMode === 'comfort' ? 'active' : ''}`}
-            >
-              COMFORT (22.5°)
-            </button>
-            <button 
-              onClick={() => applyProfile('performance')}
-              className={`profile-btn ${profileMode === 'performance' ? 'active' : ''}`}
-            >
-              PERFORMANCE (19.0°)
-            </button>
-          </div>
+        <PanelCard title="Target Temperature" icon={Thermometer} accent className="sn-thermostat-panel">
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', margin: '0 0 14px' }}>
+            This sets a preference sent to your board — there's no automatic heating/cooling loop built yet,
+            so nothing reacts to it on its own until your firmware implements one.
+          </p>
 
           <div
             className="sn-thermostat"
@@ -327,73 +265,85 @@ export default function Climate() {
             <div className="sn-thermostat-center">
               <span className="readout sn-thermostat-target">{targetTemp}°</span>
               <span className="label-eyebrow">Target</span>
-              <span className="sn-thermostat-current">Current: {currentTemp ?? '—'}°C</span>
+              <span className="sn-thermostat-current">Current: {currentTemp ?? '--'}°C</span>
             </div>
           </div>
 
           <div className="sn-thermostat-controls">
-            <button className="sn-temp-btn" onClick={() => { setTargetTemp((t) => Math.max(16, t - 0.5)); setAutoMode(false); }}><Minus size={16} /></button>
-            <span className="sn-drag-hint">Drag dial boundary to set manually</span>
-            <button className="sn-temp-btn" onClick={() => { setTargetTemp((t) => Math.min(32, t + 0.5)); setAutoMode(false); }}><Plus size={16} /></button>
+            <button className="sn-temp-btn" onClick={() => updateTarget(Math.max(16, targetTemp - 0.5))}><Minus size={16} /></button>
+            <span className="sn-drag-hint">Drag dial or use +/-</span>
+            <button className="sn-temp-btn" onClick={() => updateTarget(Math.min(32, targetTemp + 0.5))}><Plus size={16} /></button>
           </div>
-          <button className="sn-auto-btn" onClick={() => { setAutoMode(true); setProfileMode('comfort'); setTargetTemp(24); }}>Reset to Standard Auto</button>
+
+          <p className="target-note">
+            {targetSent === targetTemp
+              ? `Sent to ${device.name} as a command.`
+              : 'Saving in a moment…'}
+          </p>
         </PanelCard>
 
-        {/* Right hand side metrics */}
         <div className="sn-climate-side">
           <PanelCard title="Ambient Humidity" icon={Droplets}>
             <div className="sn-stat-row">
-              <span className="readout sn-stat-value">{humidity !== null ? Math.round(humidity) : '—'}<span className="sn-stat-unit">%</span></span>
-              <StatusPill status={humidity > 70 ? 'warning' : 'safe'} />
+              <span className="readout sn-stat-value">{humidity !== null ? Math.round(humidity) : '--'}<span className="sn-stat-unit">%</span></span>
+              <StatusPill
+                status={humidity == null ? 'warning' : humidity > 70 ? 'warning' : 'safe'}
+                text={humidity == null ? 'NO DATA' : humidity > 70 ? 'HUMID' : 'NORMAL'}
+              />
             </div>
           </PanelCard>
-          
-          <PanelCard title="Thermodynamic Comfort" icon={Sun}>
+
+          <PanelCard title="Comfort Index" icon={Sun}>
             <div className="comfort-stat-card">
-              <DialGauge value={comfortIndex} max={100} unit="" label="Comfort Index" size={110} thresholds={{ warning: 101, critical: 101 }} />
+              <DialGauge
+                value={comfortIndex ?? 0}
+                max={100} unit="" label="Comfort Index" size={110}
+                thresholds={{ warning: 101, critical: 101 }}
+              />
+              {comfortIndex === null && (
+                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 8 }}>
+                  Needs a temperature reading first.
+                </p>
+              )}
             </div>
           </PanelCard>
         </div>
-
       </div>
 
-      {/* Auxiliary Fan ventilation Speed & charts */}
       <div className="sn-dashboard-lower" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        
-        {/* Animated mechanical Fan selector card */}
         <PanelCard title="Ventilation Control" icon={Fan}>
           <ToggleSwitch
-            label="Auxiliary Ventilation Fan"
+            label="Ceiling Fan (L298N)"
             icon={Fan}
             checked={fanOn}
-            onChange={(v) => { setAutoMode(false); sendCommand(v ? 'fan_on' : 'fan_off'); }}
+            onChange={(v) => sendCommand(v ? 'fan_on' : 'fan_off')}
           />
 
           <div className="fan-speed-visual-panel">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Fan 
-                size={22} 
-                className="fan-rotator-icon" 
-                style={{ 
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Fan
+                size={22}
+                className="fan-rotator-icon"
+                style={{
                   animationDuration: fanOn ? animationDurationMap[fanSpeed] : '0s',
-                  animationName: fanOn ? 'spin' : 'none'
-                }} 
+                  animationName: fanOn ? 'spin' : 'none',
+                }}
               />
               <div>
-                <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem' }}>Visual Fan Rotor Speed</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Status: {fanOn ? 'ACTIVE' : 'STANDBY'}</span>
+                <span style={{ display: 'block', fontWeight: 600, fontSize: 13.5 }}>Fan (visual only)</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Status: {fanOn ? 'Running' : 'Stopped'}</span>
               </div>
             </div>
           </div>
 
           <div className="sn-fan-speed">
-            <span className="label-eyebrow">Motor Duty Cycle (Speed)</span>
+            <span className="label-eyebrow">Speed (PWM via ENA)</span>
             <div className="fan-keys-row">
               {[0, 1, 2, 3].map((lvl) => {
-                const labels = ['OFF', 'MIN', 'MED', 'MAX'];
+                const labels = ['OFF', 'LOW', 'MED', 'HIGH'];
                 return (
-                  <button 
-                    key={lvl} 
+                  <button
+                    key={lvl}
                     disabled={!fanOn}
                     onClick={() => handleFanSpeedChange(lvl)}
                     className={`btn-speed-select ${fanSpeed === lvl ? 'active' : ''}`}
@@ -406,12 +356,12 @@ export default function Climate() {
           </div>
 
           <p className="sn-auto-note">
-            Fan operations update the physical L298N driver board registers via serial transmission. Autonomic thermostatic cooling triggers dynamically on-node.
+            Sends `fan_speed_0..3` commands — your firmware needs a handler mapping these to an ENA duty cycle;
+            not confirmed to exist yet.
           </p>
         </PanelCard>
 
-        {/* Temperature chart history */}
-        <PanelCard title="Live Temperature trend" icon={Thermometer}>
+        <PanelCard title="Temperature Trend" icon={Thermometer}>
           {history.length > 1 ? (
             <ResponsiveContainer width="100%" height={210}>
               <AreaChart data={history}>
@@ -430,12 +380,11 @@ export default function Climate() {
             </ResponsiveContainer>
           ) : (
             <p className="sn-page-subtitle" style={{ textAlign: 'center', padding: '60px 0' }}>
-              Waiting for DHT22 log buffers to compile temperature trend curves.
+              Waiting for enough DHT22 readings to plot a trend.
             </p>
           )}
         </PanelCard>
       </div>
-
     </div>
   );
 }

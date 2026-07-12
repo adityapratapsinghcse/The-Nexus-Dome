@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Thermometer, AlertTriangle, Zap,
-  Users, UserCircle, Menu, X, LogOut, HomeIcon,
+  Users, UserCircle, Menu, X, LogOut, HomeIcon, Settings as SettingsIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { NotificationBell } from './NotificationBell';
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/energy', label: 'Energy', icon: Zap },
   { to: '/household', label: 'Household', icon: Users },
   { to: '/profile', label: 'Profile', icon: UserCircle },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 function initialsFrom(name) {
