@@ -38,7 +38,7 @@ def send_command(request):
     """
     POST /api/commands/send/
     Frontend calls this to tell the ESP32 to do something
-    (e.g. unlock door, turn light on/off).
+    (e.g. unlock door, turn light on/off, open/deny garage gate).
     """
     serializer = CommandSerializer(data=request.data)
     if serializer.is_valid():
@@ -62,6 +62,10 @@ def pending_commands(request):
     return Response(serializer.data)
 
 
+# Command actions that resolve a garage "awaiting confirmation" state either way
+GARAGE_RESOLVING_ACTIONS = {'garage_open', 'garage_deny', 'open_gate', 'deny_gate', 'close_gate'}
+
+
 @api_view(['POST'])
 def acknowledge_command(request):
     """
@@ -78,6 +82,15 @@ def acknowledge_command(request):
     command.status = 'acknowledged'
     command.acknowledged_at = timezone.now()
     command.save()
+
+    # If this was a garage-related command, clear the "pending" flag on the
+    # device now that the user's decision has actually been carried out —
+    # otherwise garage_status gets stuck on 'pending' forever after the
+    # first car detection and never triggers again.
+    if command.action in GARAGE_RESOLVING_ACTIONS and command.device.garage_status == 'pending':
+        command.device.garage_status = 'vacant'
+        command.device.save(update_fields=['garage_status'])
+
     return Response(CommandSerializer(command).data)
 
 

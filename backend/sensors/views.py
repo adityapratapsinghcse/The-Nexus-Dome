@@ -6,14 +6,13 @@ from devices.models import Device
 from .models import SensorReading
 from .serializers import SensorReadingSerializer, SensorBulkIngestSerializer
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.permissions import AllowAny ,IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from devices.authentication import DeviceKeyAuthentication
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from alerts.push import send_alert_push
 from alerts.models import Alert
 import logging
-
 
 # Maps the flat JSON fields your ESP32 sends to (sensor_type, unit) pairs
 SENSOR_FIELD_MAP = {
@@ -37,13 +36,13 @@ BOOLEAN_FIELD_MAP = {
 }
 
 # ---- Water tank calibration ----
-# The ultrasonic sensor sits at the TOP of the tank and measures the distance
-# (in cm) down to the water surface. Adjust TANK_HEIGHT_CM to the real depth
-# of your tank (the reading you'd get when it's completely empty).
+# NOTE: water tank feature is currently deferred (ultrasonic sensor is
+# dedicated to the garage). This calibration is left in place but unused
+# until a second ultrasonic sensor is added for the tank.
 TANK_HEIGHT_CM = 100
-TANK_LOW_PERCENT = 25          # "getting low" warning at/under this level
-TANK_CRITICAL_PERCENT = 10     # "refill now" alert at/under this level
-ALERT_REPEAT_COOLDOWN_MINUTES = 30  # don't spam the same alert more than once per window
+TANK_LOW_PERCENT = 25
+TANK_CRITICAL_PERCENT = 10
+ALERT_REPEAT_COOLDOWN_MINUTES = 30
 
 
 def compute_water_level_percent(distance_cm):
@@ -106,6 +105,7 @@ def ingest_sensor_data(request):
             broadcast_payload[field] = value
 
     # Derive the water tank level (%) straight from the ultrasonic distance reading
+    # (currently unused in practice since the ultrasonic sensor is dedicated to the garage)
     water_level_percent = compute_water_level_percent(data.get('distance_cm'))
     if water_level_percent is not None:
         readings_to_create.append(SensorReading(device=device, sensor_type='water_level', value=water_level_percent, unit='%'))
@@ -126,7 +126,7 @@ def ingest_sensor_data(request):
     if data.get('flame_detected'):
         broadcast_and_push_alert(device, 'fire', "Critical flame signature detected!", severity='critical')
 
-    # Water tank level alerts (replaces the old boolean water-leak alert)
+    # Water tank level alerts (dormant until a dedicated tank sensor exists)
     if water_level_percent is not None:
         if water_level_percent <= TANK_CRITICAL_PERCENT:
             if not _recent_alert_exists(device, 'water_low'):
@@ -143,7 +143,7 @@ def ingest_sensor_data(request):
                     severity='warning',
                 )
 
-   # Garage: car detected → don't auto-open, ask the user first
+    # Garage: car detected -> don't auto-open, ask the user first
     if data.get('car_detected'):
         if device.garage_status != 'pending' and not _recent_alert_exists(device, 'car_detected', minutes=2):
             device.garage_status = 'pending'
@@ -166,6 +166,9 @@ def ingest_sensor_data(request):
                     },
                 },
             )
+
+    return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

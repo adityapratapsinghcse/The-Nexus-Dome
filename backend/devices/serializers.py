@@ -5,7 +5,11 @@ from .models import RFIDCard
 class DeviceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Device
-        fields = ['id','household','name', 'type', 'location', 'is_online', 'last_seen', 'created_at']
+        fields = [
+            'id', 'household', 'name', 'type', 'location',
+            'is_online', 'last_seen', 'created_at',
+            'garage_status', 'door_status',
+        ]
         read_only_fields = ['id', 'created_at']
 
 
