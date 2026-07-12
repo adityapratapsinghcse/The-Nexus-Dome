@@ -275,7 +275,7 @@ export default function Security() {
       </div>
 
       {/* Top summary row */}
-      <div className="sn-grid sn-grid-4" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+      <div className="sn-grid sn-grid-5">
         <StatCard
           icon={doorStatus === 'locked' ? Lock : Unlock}
           label="Front Door"
@@ -313,7 +313,7 @@ export default function Security() {
         />
       </div>
 
-      <div className="sn-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+      <div className="sn-grid sn-grid-3">
         {/* Access Control */}
         <PanelCard title="Access Control" icon={Lock} className="sn-chart-panel">
           <div className="sn-security-controls">

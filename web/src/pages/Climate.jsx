@@ -310,7 +310,7 @@ export default function Climate() {
         </div>
       </div>
 
-      <div className="sn-dashboard-lower" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="sn-grid sn-grid-2">
         <PanelCard title="Ventilation Control" icon={Fan}>
           <ToggleSwitch
             label="Ceiling Fan (L298N)"

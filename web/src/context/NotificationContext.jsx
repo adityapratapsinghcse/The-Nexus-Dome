@@ -1,57 +1,65 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 const NotificationContext = createContext(null);
 
 export const NotificationProvider = ({ children }) => {
-    const { user } = useAuth();
-    const [alerts, setAlerts] = useState([]);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const [toasts, setToasts] = useState([]);
+  // FIX: this used to read `const { user } = useAuth()`, but AuthContext never
+  // exposes a `user` field (only token/householdId/householdName) — `user` was
+  // always undefined, so the `if (!user || !user.householdId) return;` guard
+  // below fired on every render and the WebSocket was NEVER opened. The bell
+  // and toasts silently never received a single live alert. Fixed by using
+  // householdId directly, and by reusing the same useWebSocket hook every
+  // other page already uses (it sends the required ?token= auth param that
+  // this custom socket was also missing).
+  const { householdId } = useAuth();
+  const [alerts, setAlerts] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [toasts, setToasts] = useState([]);
 
-    const addToast = (message, type = 'info') => {
-        const id = Date.now();
-        setToasts((prev) => [...prev, { id, message, type }]);
-        setTimeout(() => {
-            setToasts((prev) => prev.filter((t) => t.id !== id));
-        }, 4000);
+  const { lastMessage } = useWebSocket('/ws/alerts/', householdId);
+  const seenIds = useRef(new Set());
+
+  const addToast = (message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
+  useEffect(() => {
+    if (!lastMessage || lastMessage.kind !== 'alert') return;
+    // rfid_result carries granted/denied info but isn't a persisted Alert
+    // unless denied — only surface it if the backend actually created one.
+    if (lastMessage.type === 'rfid_result' && lastMessage.id === null) return;
+
+    if (lastMessage.id != null) {
+      if (seenIds.current.has(lastMessage.id)) return;
+      seenIds.current.add(lastMessage.id);
+    }
+
+    const newAlert = {
+      id: lastMessage.id,
+      type: lastMessage.type,
+      severity: lastMessage.severity || (lastMessage.type === 'rfid_result' ? 'warning' : 'info'),
+      message: lastMessage.message,
+      created_at: lastMessage.timestamp || new Date().toISOString(),
     };
 
-    useEffect(() => {
-        // If there is no logged-in user or household yet (like on the login page), DO NOTHING safely
-        if (!user || !user.householdId) {
-            return;
-        }
-        const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        // Fallback logic if window.location.host includes a port, safely point to your Django backend port (8000)
-        const backendHost = window.location.host.includes('5173') 
-            ? window.location.hostname + ':8000' 
-            : window.location.host;
-        const wsUrl = `${wsScheme}://${backendHost}/ws/alerts/`;
-        const socket = new WebSocket(wsUrl);
+    setAlerts((prev) => [newAlert, ...prev].slice(0, 30));
+    setUnreadCount((prev) => prev + 1);
+    addToast(newAlert.message, newAlert.severity === 'critical' || newAlert.severity === 'high' ? 'danger' : 'warning');
+  }, [lastMessage]);
 
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.message) {
-                const newAlert = data.message;
-                setAlerts((prev) => [newAlert, ...prev]);
-                setUnreadCount((prev) => prev + 1);
-                addToast(newAlert.message, newAlert.severity === 'high' ? 'danger' : 'warning');
-            }
-        };
+  const clearUnread = () => setUnreadCount(0);
 
-        socket.onerror = (err) => console.error("Alert WebSocket Error:", err);
-        
-        return () => socket.close();
-    }, [user]);
-
-    const clearUnread = () => setUnreadCount(0);
-
-    return (
-        <NotificationContext.Provider value={{ alerts, unreadCount, toasts, clearUnread, addToast }}>
-            {children}
-        </NotificationContext.Provider>
-    );
+  return (
+    <NotificationContext.Provider value={{ alerts, unreadCount, toasts, clearUnread, addToast }}>
+      {children}
+    </NotificationContext.Provider>
+  );
 };
 
 export const useNotifications = () => useContext(NotificationContext);

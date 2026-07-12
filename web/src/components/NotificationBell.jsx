@@ -1,46 +1,104 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, ExternalLink } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
 
+function timeAgo(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export const NotificationBell = () => {
-    const { alerts, unreadCount, clearUnread } = useNotifications();
-    const [isOpen, setIsOpen] = useState(false);
+  const { alerts, unreadCount, clearUnread } = useNotifications();
+  const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
+  const rootRef = useRef(null);
 
-    const toggleDropdown = () => {
-        setIsOpen(!isOpen);
-        if (!isOpen) clearUnread();
+  // Close on outside click so it behaves like the rest of the app's dropdowns.
+  useEffect(() => {
+    const onClick = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setIsOpen(false);
     };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
 
-    return (
-        <div className="relative dropdown-container">
-            <button onClick={toggleDropdown} className="relative p-2 text-gray-300 hover:text-white focus:outline-none">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-                {unreadCount > 0 && (
-                    <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">
-                        {unreadCount}
-                    </span>
-                )}
-            </button>
+  const toggleDropdown = () => {
+    setIsOpen((v) => !v);
+    if (!isOpen) clearUnread();
+  };
 
-            {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-gray-800 rounded-lg shadow-xl py-2 z-50 border border-gray-700 max-h-96 overflow-y-auto">
-                    <div className="px-4 py-2 border-b border-gray-700 font-bold text-white flex justify-between items-center">
-                        <span>Notifications</span>
-                        {unreadCount > 0 && <span className="text-xs text-indigo-400">New alerts live</span>}
-                    </div>
-                    {alerts.length === 0 ? (
-                        <div className="px-4 py-6 text-center text-gray-500 text-sm">All clear! No active notifications.</div>
-                    ) : (
-                        alerts.map((alert) => (
-                            <div key={alert.id} className={`px-4 py-3 border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors ${alert.severity === 'high' ? 'border-l-4 border-l-red-500' : ''}`}>
-                                <p className="text-sm text-gray-200 font-medium">{alert.message}</p>
-                                <span className="text-xs text-gray-500">{new Date(alert.created_at).toLocaleTimeString()}</span>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
+  const goToAll = () => {
+    setIsOpen(false);
+    navigate('/notifications');
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button
+        onClick={toggleDropdown}
+        className="sn-icon-btn"
+        aria-label="Notifications"
+        style={{ position: 'relative' }}
+      >
+        <Bell size={16} />
+        {unreadCount > 0 && (
+          <span style={{
+            position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16,
+            padding: '0 4px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'var(--status-critical)', color: '#fff', lineHeight: 1,
+          }}>
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {isOpen && (
+        <div style={{
+          position: 'absolute', right: 0, marginTop: 8, width: 320, maxWidth: '85vw',
+          background: 'var(--bg-panel, var(--bg-deep))', border: '1px solid var(--border-subtle)',
+          borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.4)', zIndex: 100,
+          maxHeight: 380, overflowY: 'auto',
+        }}>
+          <div style={{
+            padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)',
+            fontWeight: 700, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span>Notifications</span>
+            {unreadCount > 0 && <span style={{ fontSize: 11, color: 'var(--accent-copper-bright)' }}>New alerts live</span>}
+          </div>
+
+          {alerts.length === 0 ? (
+            <div style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12.5 }}>
+              All clear! No active notifications.
+            </div>
+          ) : (
+            alerts.slice(0, 4).map((alert) => (
+              <div key={alert.id ?? alert.created_at} style={{
+                padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)',
+                borderLeft: `3px solid ${alert.severity === 'critical' || alert.severity === 'high' ? 'var(--status-critical)' : 'var(--status-warning)'}`,
+              }}>
+                <p style={{ fontSize: 12.5, fontWeight: 600, margin: 0 }}>{alert.message}</p>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{timeAgo(alert.created_at)}</span>
+              </div>
+            ))
+          )}
+
+          <button
+            onClick={goToAll}
+            className="sn-btn-outline"
+            style={{ width: 'calc(100% - 20px)', margin: 10, justifyContent: 'center' }}
+          >
+            View all notifications <ExternalLink size={13} />
+          </button>
         </div>
-    );
+      )}
+    </div>
+  );
 };

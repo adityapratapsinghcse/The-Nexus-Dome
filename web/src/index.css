@@ -642,6 +642,24 @@ body {
   .sn-dashboard-lower { grid-template-columns: 1fr; }
 }
 
+/* Ratio grids used across pages (Safety, Climate, Security, Household).
+   These replace inline `style={{ gridTemplateColumns: ... }}` on top of
+   .sn-grid — inline styles have higher CSS specificity than any class-based
+   media query, so the old inline overrides silently defeated the mobile
+   breakpoints below and caused squished multi-column layouts on phones. */
+.sn-grid-140 { grid-template-columns: 1.4fr 1fr; }
+.sn-grid-11 { grid-template-columns: 1.1fr 1fr; }
+.sn-grid-2 { grid-template-columns: 1fr 1fr; }
+.sn-grid-5 { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 900px) {
+  .sn-grid-140, .sn-grid-11, .sn-grid-2 { grid-template-columns: 1fr; }
+  .sn-grid-5 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .sn-grid-5 { grid-template-columns: 1fr; }
+}
+
 /* ===== Stat cards ===== */
 .sn-stat-row {
   display: flex;

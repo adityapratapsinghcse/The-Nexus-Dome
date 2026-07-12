@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Flame, Wind, Activity, AlertTriangle, Bell, CheckCircle2, Radio,
   Thermometer, DoorOpen, Zap, Droplet, Car, ShieldAlert, Power, Volume2,
-  RefreshCw, CheckCheck,
+  RefreshCw, CheckCheck, ChevronRight,
 } from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
 import StatusPill from '../components/ui/StatusPill';
@@ -44,6 +45,7 @@ function StatCard({ icon: Icon, label, value, sub, status }) {
 
 export default function Safety() {
   const { householdId, householdName } = useAuth();
+  const navigate = useNavigate();
   const [device, setDevice] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -231,7 +233,7 @@ export default function Safety() {
         <StatCard icon={Radio} label="Total Sensors" value={totalSensorCount} sub={device.is_online ? 'Online' : 'Offline'} status={device.is_online ? 'safe' : 'critical'} />
       </div>
 
-      <div className="sn-grid" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+      <div className="sn-grid sn-grid-140">
         {/* Active Alerts */}
         <PanelCard title="Active Alerts" icon={Bell} className="sn-chart-panel">
           {unresolvedAlerts.length === 0 ? (
@@ -239,7 +241,7 @@ export default function Safety() {
               No active alerts. Everything's quiet.
             </p>
           ) : (
-            unresolvedAlerts.map((a) => {
+            unresolvedAlerts.slice(0, 4).map((a) => {
               const Icon = ALERT_ICON[a.type] || AlertTriangle;
               return (
                 <div key={a.id} className={`safety-alert-card ${a.severity === 'critical' ? 'critical' : ''}`}>
@@ -257,6 +259,15 @@ export default function Safety() {
                 </div>
               );
             })
+          )}
+          {unresolvedAlerts.length > 4 && (
+            <button
+              className="sn-btn-outline"
+              style={{ width: '100%', marginTop: 6, justifyContent: 'center' }}
+              onClick={() => navigate('/notifications')}
+            >
+              View {unresolvedAlerts.length - 4} more <ChevronRight size={14} />
+            </button>
           )}
           {unresolvedAlerts.length > 0 && (
             <button className="sn-btn-outline" style={{ width: '100%', marginTop: 6, justifyContent: 'center' }} onClick={acknowledgeAll}>
@@ -282,7 +293,7 @@ export default function Safety() {
         </PanelCard>
       </div>
 
-      <div className="sn-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="sn-grid sn-grid-2">
         {/* System Status */}
         <PanelCard title="System Status" icon={ShieldAlert} className="sn-chart-panel">
           <div className="safety-status-hero">

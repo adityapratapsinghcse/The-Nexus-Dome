@@ -154,7 +154,7 @@ export default function Household() {
         </PanelCard>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 16, marginBottom: 20 }}>
+      <div className="sn-grid sn-grid-11">
         {/* Active members */}
         <PanelCard title="Active Home Operators" icon={Users}>
           {members.length === 0 && (

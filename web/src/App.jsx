@@ -15,6 +15,7 @@ import Energy from './pages/Energy';
 import Household from './pages/Household';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import Notifications from './pages/Notifications';
 
 function ProtectedLayout({ children }) {
   const { token, loading } = useAuth();
@@ -112,6 +113,15 @@ function AppRoutes() {
         element={
           <ProtectedLayout>
             <Settings />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedLayout>
+            <Notifications />
           </ProtectedLayout>
         }
       />
