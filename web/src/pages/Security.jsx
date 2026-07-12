@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Car, DoorOpen, Lock, Unlock, ShieldCheck, Fingerprint, Radio,
   Wind, Flame, Droplet, Activity, Bell, RefreshCw, XCircle, ArrowUpCircle, ArrowDownCircle,
+  CreditCard, Plus, Trash2, Ban,
 } from 'lucide-react';
 import PanelCard from '../components/ui/PanelCard';
 import StatusPill from '../components/ui/StatusPill';
@@ -69,6 +70,14 @@ export default function Security() {
   const [alerts, setAlerts] = useState([]);
   const [activeAlertCount, setActiveAlertCount] = useState(0);
 
+  const [cards, setCards] = useState([]);
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [newCardUid, setNewCardUid] = useState('');
+  const [newCardLabel, setNewCardLabel] = useState('');
+  const [addCardError, setAddCardError] = useState(null);
+  const [addingCard, setAddingCard] = useState(false);
+  const [cardBusyId, setCardBusyId] = useState(null);
+
   const [prompt, setPrompt] = useState(null); // { device_id, alert_id, text }
   const [lockBusy, setLockBusy] = useState(false);
   const [garageBusy, setGarageBusy] = useState(false);
@@ -86,10 +95,11 @@ export default function Security() {
       setGarageStatus(d.garage_status || 'vacant');
       setDoorStatus(d.door_status || 'locked');
 
-      const [latestRes, accessRes, alertsRes] = await Promise.all([
+      const [latestRes, accessRes, alertsRes, cardsRes] = await Promise.all([
         client.get(`/api/sensors/latest/?device_id=${d.id}`),
         client.get(`/api/access/log/?device_id=${d.id}`),
         client.get(`/api/alerts/?device_id=${d.id}`),
+        client.get('/api/devices/access/cards/'),
       ]);
 
       latestRes.data.forEach((r) => {
@@ -104,6 +114,7 @@ export default function Security() {
       setAccessLog(accessRes.data.slice(0, 6));
       setAlerts(alertsRes.data.slice(0, 6));
       setActiveAlertCount(alertsRes.data.filter((a) => !a.is_read).length);
+      setCards(cardsRes.data);
     } catch (err) {
       console.error('Failed to load security data:', err);
     } finally {
@@ -207,6 +218,60 @@ export default function Security() {
       setDoorStatus(locked ? 'unlocked' : 'locked'); // revert
     } finally {
       setLockBusy(false);
+    }
+  };
+
+  const addCard = async (e) => {
+    e.preventDefault();
+    if (!householdId || addingCard) return;
+    const uid = newCardUid.trim().toUpperCase();
+    if (!uid) { setAddCardError('Card UID is required.'); return; }
+    setAddingCard(true);
+    setAddCardError(null);
+    try {
+      const { data } = await client.post('/api/devices/access/cards/', {
+        household: householdId,
+        uid,
+        label: newCardLabel.trim(),
+      });
+      setCards((prev) => [data, ...prev]);
+      setNewCardUid('');
+      setNewCardLabel('');
+      setShowAddCard(false);
+    } catch (err) {
+      setAddCardError(
+        err.response?.data ? JSON.stringify(err.response.data) : 'Failed to add card.'
+      );
+    } finally {
+      setAddingCard(false);
+    }
+  };
+
+  const toggleCardActive = async (card) => {
+    if (cardBusyId) return;
+    setCardBusyId(card.id);
+    try {
+      const { data } = await client.patch(`/api/devices/access/cards/${card.id}/`, {
+        is_active: !card.is_active,
+      });
+      setCards((prev) => prev.map((c) => (c.id === card.id ? data : c)));
+    } catch (err) {
+      console.error('Failed to update card:', err);
+    } finally {
+      setCardBusyId(null);
+    }
+  };
+
+  const deleteCard = async (card) => {
+    if (cardBusyId) return;
+    setCardBusyId(card.id);
+    try {
+      await client.delete(`/api/devices/access/cards/${card.id}/`);
+      setCards((prev) => prev.filter((c) => c.id !== card.id));
+    } catch (err) {
+      console.error('Failed to delete card:', err);
+    } finally {
+      setCardBusyId(null);
     }
   };
 
@@ -326,6 +391,89 @@ export default function Security() {
                   <ArrowDownCircle size={14} /> Close Garage
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="label-eyebrow">RFID Cards</span>
+              <button
+                className="sn-icon-btn"
+                title={showAddCard ? 'Cancel' : 'Add a card'}
+                onClick={() => { setShowAddCard((v) => !v); setAddCardError(null); }}
+              >
+                <Plus size={14} style={{ transform: showAddCard ? 'rotate(45deg)' : 'none', transition: 'transform 0.15s' }} />
+              </button>
+            </div>
+
+            {showAddCard && (
+              <form onSubmit={addCard} style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  value={newCardUid}
+                  onChange={(e) => setNewCardUid(e.target.value)}
+                  placeholder="Card UID (e.g. A1B2C3D4)"
+                  required
+                  style={{
+                    width: '100%', background: 'var(--bg-panel-raised)', border: '1px solid var(--border-subtle)',
+                    borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-mono)', outline: 'none', fontSize: 13, textTransform: 'uppercase',
+                  }}
+                />
+                <input
+                  value={newCardLabel}
+                  onChange={(e) => setNewCardLabel(e.target.value)}
+                  placeholder="Label (e.g. Aditya's card) — optional"
+                  style={{
+                    width: '100%', background: 'var(--bg-panel-raised)', border: '1px solid var(--border-subtle)',
+                    borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-body)', outline: 'none', fontSize: 13,
+                  }}
+                />
+                {addCardError && <p style={{ color: 'var(--status-critical)', fontSize: 12 }}>{addCardError}</p>}
+                <button className="sn-btn-solid" type="submit" disabled={addingCard} style={{ alignSelf: 'flex-start' }}>
+                  <Plus size={14} /> {addingCard ? 'Adding…' : 'Add Card'}
+                </button>
+              </form>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+              {cards.length === 0 && <p className="label-eyebrow">No cards registered yet.</p>}
+              {cards.map((c) => (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '9px 12px', background: 'var(--bg-panel-raised)', borderRadius: 8,
+                  border: '1px solid var(--border-subtle)', gap: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <CreditCard size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {c.label || 'Unnamed card'}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{c.uid}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <StatusPill status={c.is_active ? 'safe' : 'critical'} text={c.is_active ? 'ACTIVE' : 'REVOKED'} />
+                    <button
+                      className="sn-icon-btn"
+                      title={c.is_active ? 'Revoke' : 'Reactivate'}
+                      disabled={cardBusyId === c.id}
+                      onClick={() => toggleCardActive(c)}
+                    >
+                      {c.is_active ? <Ban size={14} /> : <ShieldCheck size={14} />}
+                    </button>
+                    <button
+                      className="sn-icon-btn"
+                      title="Delete card"
+                      disabled={cardBusyId === c.id}
+                      onClick={() => deleteCard(c)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
