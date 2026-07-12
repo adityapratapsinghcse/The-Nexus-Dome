@@ -60,6 +60,33 @@ def _recent_alert_exists(device, alert_type, minutes=ALERT_REPEAT_COOLDOWN_MINUT
     return Alert.objects.filter(device=device, type=alert_type, timestamp__gte=since).exists()
 
 
+AUTO_FAN_ON_TEMP = 28.0
+AUTO_FAN_OFF_TEMP = 26.0     # hysteresis gap so it doesn't flicker on/off right at the line
+AUTO_DARK_THRESHOLD = 30.0   # light_percent below this = "dark"
+
+def _queue_command_if_needed(device, action):
+    if not Command.objects.filter(device=device, action=action, status='pending').exists():
+        Command.objects.create(device=device, action=action, status='pending')
+
+if device.automation_enabled:
+    temperature = data.get('temperature')
+    current_fan_on = data.get('fan_on')
+    # Second line of defense against DHT22 noise, even if the firmware guard is in place
+    if temperature is not None and -40 < temperature < 80 and current_fan_on is not None:
+        if not current_fan_on and temperature >= AUTO_FAN_ON_TEMP:
+            _queue_command_if_needed(device, 'fan_on')
+        elif current_fan_on and temperature <= AUTO_FAN_OFF_TEMP:
+            _queue_command_if_needed(device, 'fan_off')
+
+    light_percent = data.get('light_percent')
+    current_light_on = data.get('light_on')
+    if light_percent is not None and current_light_on is not None:
+        is_dark = light_percent < AUTO_DARK_THRESHOLD
+        if is_dark and not current_light_on:
+            _queue_command_if_needed(device, 'light_on')
+        elif not is_dark and current_light_on:
+            _queue_command_if_needed(device, 'light_off')
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def ingest_sensor_data(request):
@@ -163,6 +190,17 @@ def ingest_sensor_data(request):
                     severity='warning',
                 )
 
+    VIBRATION_ALERT_THRESHOLD = 4.0   # m/s^2 deviation — set higher than the firmware's
+                                    # own VIBRATION_THRESHOLD so only stronger events alert
+
+    vibration_deviation = data.get('vibration_deviation')
+    if vibration_deviation is not None and vibration_deviation >= VIBRATION_ALERT_THRESHOLD:
+        if not _recent_alert_exists(device, 'vibration'):
+            broadcast_and_push_alert(
+                device, 'vibration',
+                f"Unusual vibration detected (deviation {vibration_deviation:.1f}).",
+                severity='warning',
+            )
     # Garage: car detected -> don't auto-open, ask the user first
     if data.get('car_detected'):
         # FIX: garage_status only ever left 'pending' via garage_confirm().

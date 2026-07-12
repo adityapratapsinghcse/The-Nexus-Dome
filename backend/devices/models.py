@@ -20,6 +20,7 @@ class Device(models.Model):
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    automation_enabled = models.BooleanField(default=True)
     garage_status = models.CharField(
         max_length=10,
         choices=[
