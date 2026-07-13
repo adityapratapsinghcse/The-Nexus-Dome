@@ -99,7 +99,7 @@ export default function Security() {
         client.get(`/api/sensors/latest/?device_id=${d.id}`),
         client.get(`/api/access/log/?device_id=${d.id}`),
         client.get(`/api/alerts/?device_id=${d.id}`),
-        client.get('/api/devices/access/cards/'),
+        client.get('/api/access/cards/'),
       ]);
 
       latestRes.data.forEach((r) => {
@@ -229,7 +229,7 @@ export default function Security() {
     setAddingCard(true);
     setAddCardError(null);
     try {
-      const { data } = await client.post('/api/devices/access/cards/', {
+      const { data } = await client.post('/api/access/cards/', {
         household: householdId,
         uid,
         label: newCardLabel.trim(),
@@ -251,7 +251,7 @@ export default function Security() {
     if (cardBusyId) return;
     setCardBusyId(card.id);
     try {
-      const { data } = await client.patch(`/api/devices/access/cards/${card.id}/`, {
+      const { data } = await client.patch(`/api/access/cards/${card.id}/`, {
         is_active: !card.is_active,
       });
       setCards((prev) => prev.map((c) => (c.id === card.id ? data : c)));
@@ -266,7 +266,7 @@ export default function Security() {
     if (cardBusyId) return;
     setCardBusyId(card.id);
     try {
-      await client.delete(`/api/devices/access/cards/${card.id}/`);
+      await client.delete(`/api/access/cards/${card.id}/`);
       setCards((prev) => prev.filter((c) => c.id !== card.id));
     } catch (err) {
       console.error('Failed to delete card:', err);
